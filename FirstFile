@@ -1,1 +1,244 @@
+using System;
+using System.Collections.Generic;
+using System.Data;
+using System.IO;
+using ExcelDataReader;
 
+namespace ISAS_Regression_Automation
+{
+    /// <summary>
+    /// Parses Monthly Department Detail Comparison Excel file
+    /// Extracts data from three sections: FTE (18-33), Labor Expense (39-52), Volume (58-69)
+    /// </summary>
+    public static class MonthlyDepartmentDetailExcelParser
+    {
+        /// <summary>
+        /// Parse Excel file and return both Plan 1 and Plan 2 data
+        /// </summary>
+        /// <param name="excelFilePath">Path to Excel file</param>
+        /// <returns>MonthlyDepartmentDetailComparison with both plans</returns>
+        public static MonthlyDepartmentDetailComparison ParseExcelData(string excelFilePath)
+        {
+            System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
+            
+            using (var stream = File.Open(excelFilePath, FileMode.Open, FileAccess.Read))
+            {
+                using (var reader = ExcelReaderFactory.CreateReader(stream))
+                {
+                    var dataSet = reader.AsDataSet();
+                    var table = dataSet.Tables[0]; // First sheet
+                    
+                    return ParseExcelDataTable(table);
+                }
+            }
+        }
+        
+        private static MonthlyDepartmentDetailComparison ParseExcelDataTable(DataTable table)
+        {
+            var comparison = new MonthlyDepartmentDetailComparison();
+            comparison.Plan1 = new DepartmentPlanData();
+            comparison.Plan2 = new DepartmentPlanData();
+            
+            // Section 1: FTE Summary (Rows 18-33) - Description in Col D (3), Data starts at Col G (6)
+            var fteColumns = new Dictionary<string, int>
+            {
+                {"Description", 3},  // Column D
+                {"Jan", 6}, {"Feb", 9}, {"Mar", 11}, {"Apr", 14},
+                {"May", 16}, {"Jun", 19}, {"Jul", 21}, {"Aug", 23},
+                {"Sep", 25}, {"Oct", 27}, {"Nov", 29}, {"Dec", 31}, {"Total", 36}
+            };
+            ParseSection(table, 17, 32, fteColumns, comparison);  // Rows 18-33 (0-based: 17-32)
+            
+            // Section 2: Labor Expense (Rows 39-52) - Description in Col C (2), Data starts at Col F (5)
+            var laborColumns = new Dictionary<string, int>
+            {
+                {"Description", 2},  // Column C
+                {"Jan", 5}, {"Feb", 8}, {"Mar", 10}, {"Apr", 13},
+                {"May", 15}, {"Jun", 18}, {"Jul", 20}, {"Aug", 22},
+                {"Sep", 24}, {"Oct", 26}, {"Nov", 28}, {"Dec", 30}, {"Total", 35}
+            };
+            ParseSection(table, 38, 51, laborColumns, comparison);  // Rows 39-52 (0-based: 38-51)
+            
+            // Section 3: Volume/Productivity (Rows 58-69) - Description in Col C (2), Data starts at Col F (5)
+            var volumeColumns = new Dictionary<string, int>
+            {
+                {"Description", 2},  // Column C
+                {"Jan", 5}, {"Feb", 8}, {"Mar", 10}, {"Apr", 13},
+                {"May", 15}, {"Jun", 18}, {"Jul", 20}, {"Aug", 22},
+                {"Sep", 24}, {"Oct", 26}, {"Nov", 28}, {"Dec", 30}, {"Total", 35}
+            };
+            ParseSection(table, 57, 68, volumeColumns, comparison);  // Rows 58-69 (0-based: 57-68)
+            
+            return comparison;
+        }
+        
+        private static void ParseSection(
+            DataTable table,
+            int startRow,
+            int endRow,
+            Dictionary<string, int> columnMap,
+            MonthlyDepartmentDetailComparison comparison)
+        {
+            int descriptionCol = columnMap["Description"];
+            
+            for (int rowIndex = startRow; rowIndex <= endRow && rowIndex < table.Rows.Count; rowIndex++)
+            {
+                var row = table.Rows[rowIndex];
+                var metricName = GetString(row, descriptionCol);
+                
+                if (string.IsNullOrEmpty(metricName)) continue;
+                
+                // Extract the metric description without P1/P2 prefix
+                string cleanMetric = metricName;
+                if (metricName.StartsWith("P1 - "))
+                    cleanMetric = metricName.Substring(5);
+                else if (metricName.StartsWith("P2 - "))
+                    cleanMetric = metricName.Substring(5);
+                else
+                    continue; // Skip if not P1 or P2
+                
+                // Read monthly values for this metric
+                var monthlyValues = new Dictionary<string, double>();
+                foreach (var month in new[] { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Total" })
+                {
+                    if (columnMap.ContainsKey(month))
+                    {
+                        monthlyValues[month] = GetDouble(row, columnMap[month]);
+                    }
+                }
+                
+                // Assign to appropriate plan
+                if (metricName.StartsWith("P1 - "))
+                {
+                    AssignMetricToPlan(comparison.Plan1, cleanMetric, monthlyValues);
+                }
+                else if (metricName.StartsWith("P2 - "))
+                {
+                    AssignMetricToPlan(comparison.Plan2, cleanMetric, monthlyValues);
+                }
+            }
+            
+            return;
+        }
+        
+        private static void AssignMetricToPlan(DepartmentPlanData plan, string metricName, Dictionary<string, double> values)
+        {
+            // Check if this is a percentage metric - handle Excel percentage formatting
+            bool isPercentage = metricName.Contains("%");
+            
+            // Smart percentage handling: if value < 1 and it's a percentage metric, multiply by 100
+            if (isPercentage)
+            {
+                var convertedValues = new Dictionary<string, double>();
+                foreach (var kvp in values)
+                {
+                    // If the value is less than 1, it's stored as decimal (0.08), multiply by 100
+                    // If the value is >= 1, it's already the raw percentage (8.05), keep as-is
+                    if (kvp.Value < 1.0 && kvp.Value > 0.0)
+                    {
+                        convertedValues[kvp.Key] = kvp.Value * 100.0;
+                    }
+                    else
+                    {
+                        convertedValues[kvp.Key] = kvp.Value;
+                    }
+                }
+                values = convertedValues;
+            }
+            
+            // FTE Metrics
+            if (metricName == "Employed (Productive) FTEs")
+                SetMonthlyData(plan.EmployedProductiveFtes, values);
+            else if (metricName == "Contract Labor %")
+                SetMonthlyData(plan.ContractLaborPercent, values);
+            else if (metricName == "Contract FTEs")
+                SetMonthlyData(plan.ContractFtes, values);
+            else if (metricName == "Total Productive FTEs")
+                SetMonthlyData(plan.TotalProductiveFtes, values);
+            else if (metricName == "Non-Productive %")
+                SetMonthlyData(plan.NonProductivePercent, values);
+            else if (metricName == "Non-Productive FTEs")
+                SetMonthlyData(plan.NonProductiveFtes, values);
+            else if (metricName == "Employed (paid) FTEs")
+                SetMonthlyData(plan.EmployedPaidFtes, values);
+            else if (metricName == "Total FTEs (Paid + Contract)")
+                SetMonthlyData(plan.TotalFtes, values);
+            
+            // Labor Expense Metrics
+            else if (metricName == "Total Salaries & Wages ($000)")
+                SetMonthlyData(plan.TotalSalariesAndWages, values);
+            else if (metricName == "Total Contract Labor  ($000)")  // Note: two spaces
+                SetMonthlyData(plan.TotalContractLaborDollars, values);
+            else if (metricName == "Total Labor Expense  ($000)")  // Note: two spaces
+                SetMonthlyData(plan.TotalLaborExpense, values);
+            else if (metricName == "Employed Labor Rate")
+                SetMonthlyData(plan.EmployedLaborRate, values);
+            else if (metricName == "Contract Labor Rate")
+                SetMonthlyData(plan.ContactLaborRate, values);
+            else if (metricName == "Overtime Premium Dollars")
+                SetMonthlyData(plan.OverTimePremiumDollars, values);
+            else if (metricName == "Overtime %")
+                SetMonthlyData(plan.OtPercent, values);
+            // Note: Overtime FTEs is NOT in the Excel file (rows 53-57 are missing from Excel)
+            
+            // Volume/Productivity Metrics
+            else if (metricName == "Department UOS")
+                SetMonthlyData(plan.DeptUOS, values);
+            else if (metricName == "Semi-Variable FTEs")
+                SetMonthlyData(plan.SemiVariableFtes, values);
+            else if (metricName == "Variable Productive Hrs/UOS")
+                SetMonthlyData(plan.VariableProdHrsPerUOS, values);
+            else if (metricName == "Min FTE")
+                SetMonthlyData(plan.MinFTE, values);
+            else if (metricName == "Total Productive Hrs/UOS")
+                SetMonthlyData(plan.TotalProdHrsPerUOS, values);
+            // Note: Total Paid Hrs/UOS is NOT in the Excel file
+        }
+        
+        private static void SetMonthlyData(MonthlyData monthlyData, Dictionary<string, double> values)
+        {
+            // Round all values to 2 decimal places when assigning
+            if (values.ContainsKey("Jan")) monthlyData.Jan = Math.Round(values["Jan"], 2);
+            if (values.ContainsKey("Feb")) monthlyData.Feb = Math.Round(values["Feb"], 2);
+            if (values.ContainsKey("Mar")) monthlyData.Mar = Math.Round(values["Mar"], 2);
+            if (values.ContainsKey("Apr")) monthlyData.Apr = Math.Round(values["Apr"], 2);
+            if (values.ContainsKey("May")) monthlyData.May = Math.Round(values["May"], 2);
+            if (values.ContainsKey("Jun")) monthlyData.Jun = Math.Round(values["Jun"], 2);
+            if (values.ContainsKey("Jul")) monthlyData.Jul = Math.Round(values["Jul"], 2);
+            if (values.ContainsKey("Aug")) monthlyData.Aug = Math.Round(values["Aug"], 2);
+            if (values.ContainsKey("Sep")) monthlyData.Sep = Math.Round(values["Sep"], 2);
+            if (values.ContainsKey("Oct")) monthlyData.Oct = Math.Round(values["Oct"], 2);
+            if (values.ContainsKey("Nov")) monthlyData.Nov = Math.Round(values["Nov"], 2);
+            if (values.ContainsKey("Dec")) monthlyData.Dec = Math.Round(values["Dec"], 2);
+            if (values.ContainsKey("Total")) monthlyData.Total = Math.Round(values["Total"], 2);
+        }
+        
+        private static double GetDouble(DataRow row, int columnIndex)
+        {
+            if (columnIndex >= row.Table.Columns.Count) return 0.0;
+            
+            var value = row[columnIndex];
+            if (value == null || value == DBNull.Value) return 0.0;
+            
+            try
+            {
+                double result = Convert.ToDouble(value);
+                return result; // Return as-is, rounding happens in SetMonthlyData
+            }
+            catch
+            {
+                return 0.0;
+            }
+        }
+        
+        private static string GetString(DataRow row, int columnIndex)
+        {
+            if (columnIndex >= row.Table.Columns.Count) return string.Empty;
+            
+            var value = row[columnIndex];
+            if (value == null || value == DBNull.Value) return string.Empty;
+            
+            return value.ToString().Trim();
+        }
+    }
+}
