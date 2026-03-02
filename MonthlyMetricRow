@@ -1,0 +1,497 @@
+using System;
+using System.Collections.Generic;
+using System.Data;
+using System.IO;
+using System.Linq;
+using ExcelDataReader;
+
+namespace ISAS
+{
+    /// <summary>
+    /// Represents a single metric row with Description + 12 monthly values + Total.
+    /// Used for both P1 and P2 plan data across all sections.
+    /// </summary>
+    public class MonthlyMetricRow
+    {
+        public string Description { get; set; }
+        public double Jan { get; set; }
+        public double Feb { get; set; }
+        public double Mar { get; set; }
+        public double Apr { get; set; }
+        public double May { get; set; }
+        public double Jun { get; set; }
+        public double Jul { get; set; }
+        public double Aug { get; set; }
+        public double Sep { get; set; }
+        public double Oct { get; set; }
+        public double Nov { get; set; }
+        public double Dec { get; set; }
+        public double Total { get; set; }
+    }
+
+    #region Shared Parser Helpers
+
+    /// <summary>
+    /// Shared helper methods for extracting row data from the Excel sheet.
+    /// Because columns are scattered (with hidden columns in between), the parser
+    /// iterates through each cell in the row and collects only non-empty values.
+    /// Each row consistently has exactly 14 non-empty cells:
+    ///   [0] = Description (e.g., "P1 - Employed (Productive) FTEs")
+    ///   [1]-[12] = Jan through Dec values
+    ///   [13] = Total
+    /// </summary>
+    public static class ExcelRowExtractor
+    {
+        /// <summary>
+        /// Iterates through each cell in the given row and collects non-empty values.
+        /// Expects exactly 14 non-empty cells: Description + 12 months + Total.
+        /// </summary>
+        public static MonthlyMetricRow ExtractRowValues(DataTable sheet, int rowIdx)
+        {
+            var row = sheet.Rows[rowIdx];
+            var nonEmptyValues = new List<string>();
+
+            for (int colIdx = 0; colIdx < sheet.Columns.Count; colIdx++)
+            {
+                var cellValue = row[colIdx];
+
+                if (cellValue == null || cellValue == DBNull.Value)
+                    continue;
+
+                string strValue = cellValue.ToString().Trim();
+
+                if (string.IsNullOrEmpty(strValue))
+                    continue;
+
+                nonEmptyValues.Add(strValue);
+            }
+
+            // We expect exactly 14 non-empty values per row
+            if (nonEmptyValues.Count < 14)
+                return null;
+
+            return new MonthlyMetricRow
+            {
+                Description = nonEmptyValues[0],
+                Jan = ParseAndRound(nonEmptyValues[1]),
+                Feb = ParseAndRound(nonEmptyValues[2]),
+                Mar = ParseAndRound(nonEmptyValues[3]),
+                Apr = ParseAndRound(nonEmptyValues[4]),
+                May = ParseAndRound(nonEmptyValues[5]),
+                Jun = ParseAndRound(nonEmptyValues[6]),
+                Jul = ParseAndRound(nonEmptyValues[7]),
+                Aug = ParseAndRound(nonEmptyValues[8]),
+                Sep = ParseAndRound(nonEmptyValues[9]),
+                Oct = ParseAndRound(nonEmptyValues[10]),
+                Nov = ParseAndRound(nonEmptyValues[11]),
+                Dec = ParseAndRound(nonEmptyValues[12]),
+                Total = ParseAndRound(nonEmptyValues[13])
+            };
+        }
+
+        /// <summary>
+        /// Extracts a range of rows from the sheet and returns a list of MonthlyMetricRow.
+        /// </summary>
+        public static List<MonthlyMetricRow> ExtractRows(DataTable sheet, int startRow, int endRow)
+        {
+            var extractedRows = new List<MonthlyMetricRow>();
+
+            for (int rowIdx = startRow; rowIdx <= endRow; rowIdx++)
+            {
+                var metricRow = ExtractRowValues(sheet, rowIdx);
+                if (metricRow != null)
+                {
+                    extractedRows.Add(metricRow);
+                }
+            }
+
+            return extractedRows;
+        }
+
+        /// <summary>
+        /// Parses a string value to double and rounds to 2 decimal places.
+        /// Returns 0.0 if parsing fails.
+        /// </summary>
+        public static double ParseAndRound(string value)
+        {
+            if (double.TryParse(value, out double result))
+            {
+                return Math.Round(result, 2);
+            }
+            return 0.0;
+        }
+    }
+
+    #endregion
+
+    #region Section 1: Department FTE Summary
+
+    /// <summary>
+    /// Department FTE Summary section (Excel rows 18-33).
+    /// Each property has a P1 and P2 row (two separate plans).
+    /// 
+    /// Properties map to these Excel row pairs:
+    ///   Rows 18-19: Employed (Productive) FTEs
+    ///   Rows 20-21: Contract Labor %
+    ///   Rows 22-23: Contract FTEs
+    ///   Rows 24-25: Total Productive FTEs
+    ///   Rows 26-27: Non-Productive %
+    ///   Rows 28-29: Non-Productive FTEs
+    ///   Rows 30-31: Employed (paid) FTEs
+    ///   Rows 32-33: Total FTEs (Paid + Contract)
+    /// </summary>
+    public class DepartmentFTESummary
+    {
+        // Row 18 (P1) / Row 19 (P2)
+        public MonthlyMetricRow P1_EmployedProductiveFTEs { get; set; }
+        public MonthlyMetricRow P2_EmployedProductiveFTEs { get; set; }
+
+        // Row 20 (P1) / Row 21 (P2)
+        public MonthlyMetricRow P1_ContractLaborPercent { get; set; }
+        public MonthlyMetricRow P2_ContractLaborPercent { get; set; }
+
+        // Row 22 (P1) / Row 23 (P2)
+        public MonthlyMetricRow P1_ContractFTEs { get; set; }
+        public MonthlyMetricRow P2_ContractFTEs { get; set; }
+
+        // Row 24 (P1) / Row 25 (P2)
+        public MonthlyMetricRow P1_TotalProductiveFTEs { get; set; }
+        public MonthlyMetricRow P2_TotalProductiveFTEs { get; set; }
+
+        // Row 26 (P1) / Row 27 (P2)
+        public MonthlyMetricRow P1_NonProductivePercent { get; set; }
+        public MonthlyMetricRow P2_NonProductivePercent { get; set; }
+
+        // Row 28 (P1) / Row 29 (P2)
+        public MonthlyMetricRow P1_NonProductiveFTEs { get; set; }
+        public MonthlyMetricRow P2_NonProductiveFTEs { get; set; }
+
+        // Row 30 (P1) / Row 31 (P2)
+        public MonthlyMetricRow P1_EmployedPaidFTEs { get; set; }
+        public MonthlyMetricRow P2_EmployedPaidFTEs { get; set; }
+
+        // Row 32 (P1) / Row 33 (P2)
+        public MonthlyMetricRow P1_TotalFTEsPaidPlusContract { get; set; }
+        public MonthlyMetricRow P2_TotalFTEsPaidPlusContract { get; set; }
+    }
+
+    /// <summary>
+    /// Parses the Department FTE Summary section (Excel rows 18-33).
+    /// </summary>
+    public class DepartmentFTESummaryParser
+    {
+        // Excel rows 18-33 → 0-indexed: 17-32
+        private const int StartRow = 17;
+        private const int EndRow = 32;
+
+        /// <summary>
+        /// Parses the Department FTE Summary section from the given DataTable (sheet).
+        /// </summary>
+        public static DepartmentFTESummary Parse(DataTable sheet)
+        {
+            var rows = ExcelRowExtractor.ExtractRows(sheet, StartRow, EndRow);
+            return MapToModel(rows);
+        }
+
+        /// <summary>
+        /// Maps the 16 extracted rows to the DepartmentFTESummary model.
+        /// Rows come in P1/P2 pairs:
+        ///   [0]  Row 18 → P1 Employed (Productive) FTEs
+        ///   [1]  Row 19 → P2 Employed (Productive) FTEs
+        ///   [2]  Row 20 → P1 Contract Labor %
+        ///   [3]  Row 21 → P2 Contract Labor %
+        ///   [4]  Row 22 → P1 Contract FTEs
+        ///   [5]  Row 23 → P2 Contract FTEs
+        ///   [6]  Row 24 → P1 Total Productive FTEs
+        ///   [7]  Row 25 → P2 Total Productive FTEs
+        ///   [8]  Row 26 → P1 Non-Productive %
+        ///   [9]  Row 27 → P2 Non-Productive %
+        ///   [10] Row 28 → P1 Non-Productive FTEs
+        ///   [11] Row 29 → P2 Non-Productive FTEs
+        ///   [12] Row 30 → P1 Employed (paid) FTEs
+        ///   [13] Row 31 → P2 Employed (paid) FTEs
+        ///   [14] Row 32 → P1 Total FTEs (Paid + Contract)
+        ///   [15] Row 33 → P2 Total FTEs (Paid + Contract)
+        /// </summary>
+        private static DepartmentFTESummary MapToModel(List<MonthlyMetricRow> rows)
+        {
+            return new DepartmentFTESummary
+            {
+                P1_EmployedProductiveFTEs = rows[0],
+                P2_EmployedProductiveFTEs = rows[1],
+
+                P1_ContractLaborPercent = rows[2],
+                P2_ContractLaborPercent = rows[3],
+
+                P1_ContractFTEs = rows[4],
+                P2_ContractFTEs = rows[5],
+
+                P1_TotalProductiveFTEs = rows[6],
+                P2_TotalProductiveFTEs = rows[7],
+
+                P1_NonProductivePercent = rows[8],
+                P2_NonProductivePercent = rows[9],
+
+                P1_NonProductiveFTEs = rows[10],
+                P2_NonProductiveFTEs = rows[11],
+
+                P1_EmployedPaidFTEs = rows[12],
+                P2_EmployedPaidFTEs = rows[13],
+
+                P1_TotalFTEsPaidPlusContract = rows[14],
+                P2_TotalFTEsPaidPlusContract = rows[15]
+            };
+        }
+    }
+
+    #endregion
+
+    #region Section 2: Department Labor Expense Summary
+
+    /// <summary>
+    /// Department Labor Expense Summary section (Excel rows 39-54).
+    /// Each property has a P1 and P2 row (two separate plans).
+    /// 
+    /// Properties map to these Excel row pairs:
+    ///   Rows 39-40: Total Salaries &amp; Wages ($000)
+    ///   Rows 41-42: Total Contract Labor ($000)
+    ///   Rows 43-44: Total Labor Expense ($000)
+    ///   Rows 45-46: Employed Labor Rate
+    ///   Rows 47-48: Contract Labor Rate
+    ///   Rows 49-50: Overtime Premium Dollars
+    ///   Rows 51-52: Overtime %
+    ///   Rows 53-54: Overtime FTEs
+    /// </summary>
+    public class DepartmentLaborExpenseSummary
+    {
+        // Row 39 (P1) / Row 40 (P2)
+        public MonthlyMetricRow P1_TotalSalariesAndWages { get; set; }
+        public MonthlyMetricRow P2_TotalSalariesAndWages { get; set; }
+
+        // Row 41 (P1) / Row 42 (P2)
+        public MonthlyMetricRow P1_TotalContractLabor { get; set; }
+        public MonthlyMetricRow P2_TotalContractLabor { get; set; }
+
+        // Row 43 (P1) / Row 44 (P2)
+        public MonthlyMetricRow P1_TotalLaborExpense { get; set; }
+        public MonthlyMetricRow P2_TotalLaborExpense { get; set; }
+
+        // Row 45 (P1) / Row 46 (P2)
+        public MonthlyMetricRow P1_EmployedLaborRate { get; set; }
+        public MonthlyMetricRow P2_EmployedLaborRate { get; set; }
+
+        // Row 47 (P1) / Row 48 (P2)
+        public MonthlyMetricRow P1_ContractLaborRate { get; set; }
+        public MonthlyMetricRow P2_ContractLaborRate { get; set; }
+
+        // Row 49 (P1) / Row 50 (P2)
+        public MonthlyMetricRow P1_OvertimePremiumDollars { get; set; }
+        public MonthlyMetricRow P2_OvertimePremiumDollars { get; set; }
+
+        // Row 51 (P1) / Row 52 (P2)
+        public MonthlyMetricRow P1_OvertimePercent { get; set; }
+        public MonthlyMetricRow P2_OvertimePercent { get; set; }
+
+        // Row 53 (P1) / Row 54 (P2)
+        public MonthlyMetricRow P1_OvertimeFTEs { get; set; }
+        public MonthlyMetricRow P2_OvertimeFTEs { get; set; }
+    }
+
+    /// <summary>
+    /// Parses the Department Labor Expense Summary section (Excel rows 39-54).
+    /// </summary>
+    public class DepartmentLaborExpenseSummaryParser
+    {
+        // Excel rows 39-54 → 0-indexed: 38-53
+        private const int StartRow = 38;
+        private const int EndRow = 53;
+
+        /// <summary>
+        /// Parses the Department Labor Expense Summary section from the given DataTable (sheet).
+        /// </summary>
+        public static DepartmentLaborExpenseSummary Parse(DataTable sheet)
+        {
+            var rows = ExcelRowExtractor.ExtractRows(sheet, StartRow, EndRow);
+            return MapToModel(rows);
+        }
+
+        /// <summary>
+        /// Maps the 16 extracted rows to the DepartmentLaborExpenseSummary model.
+        /// Rows come in P1/P2 pairs:
+        ///   [0]  Row 39 → P1 Total Salaries &amp; Wages ($000)
+        ///   [1]  Row 40 → P2 Total Salaries &amp; Wages ($000)
+        ///   [2]  Row 41 → P1 Total Contract Labor ($000)
+        ///   [3]  Row 42 → P2 Total Contract Labor ($000)
+        ///   [4]  Row 43 → P1 Total Labor Expense ($000)
+        ///   [5]  Row 44 → P2 Total Labor Expense ($000)
+        ///   [6]  Row 45 → P1 Employed Labor Rate
+        ///   [7]  Row 46 → P2 Employed Labor Rate
+        ///   [8]  Row 47 → P1 Contract Labor Rate
+        ///   [9]  Row 48 → P2 Contract Labor Rate
+        ///   [10] Row 49 → P1 Overtime Premium Dollars
+        ///   [11] Row 50 → P2 Overtime Premium Dollars
+        ///   [12] Row 51 → P1 Overtime %
+        ///   [13] Row 52 → P2 Overtime %
+        ///   [14] Row 53 → P1 Overtime FTEs
+        ///   [15] Row 54 → P2 Overtime FTEs
+        /// </summary>
+        private static DepartmentLaborExpenseSummary MapToModel(List<MonthlyMetricRow> rows)
+        {
+            return new DepartmentLaborExpenseSummary
+            {
+                P1_TotalSalariesAndWages = rows[0],
+                P2_TotalSalariesAndWages = rows[1],
+
+                P1_TotalContractLabor = rows[2],
+                P2_TotalContractLabor = rows[3],
+
+                P1_TotalLaborExpense = rows[4],
+                P2_TotalLaborExpense = rows[5],
+
+                P1_EmployedLaborRate = rows[6],
+                P2_EmployedLaborRate = rows[7],
+
+                P1_ContractLaborRate = rows[8],
+                P2_ContractLaborRate = rows[9],
+
+                P1_OvertimePremiumDollars = rows[10],
+                P2_OvertimePremiumDollars = rows[11],
+
+                P1_OvertimePercent = rows[12],
+                P2_OvertimePercent = rows[13],
+
+                P1_OvertimeFTEs = rows[14],
+                P2_OvertimeFTEs = rows[15]
+            };
+        }
+    }
+
+    #endregion
+
+    #region Section 3: Department Volume Summary
+
+    /// <summary>
+    /// Department Volume Summary section (Excel rows 58-67).
+    /// Each property has a P1 and P2 row (two separate plans).
+    /// 
+    /// Properties map to these Excel row pairs:
+    ///   Rows 58-59: Department UOS
+    ///   Rows 60-61: Semi-Variable FTEs
+    ///   Rows 62-63: Variable Productive Hrs/UOS
+    ///   Rows 64-65: Min FTE
+    ///   Rows 66-67: Total Productive Hrs/UOS
+    /// </summary>
+    public class DepartmentVolumeSummary
+    {
+        // Row 58 (P1) / Row 59 (P2)
+        public MonthlyMetricRow P1_DepartmentUOS { get; set; }
+        public MonthlyMetricRow P2_DepartmentUOS { get; set; }
+
+        // Row 60 (P1) / Row 61 (P2)
+        public MonthlyMetricRow P1_SemiVariableFTEs { get; set; }
+        public MonthlyMetricRow P2_SemiVariableFTEs { get; set; }
+
+        // Row 62 (P1) / Row 63 (P2)
+        public MonthlyMetricRow P1_VariableProductiveHrsPerUOS { get; set; }
+        public MonthlyMetricRow P2_VariableProductiveHrsPerUOS { get; set; }
+
+        // Row 64 (P1) / Row 65 (P2)
+        public MonthlyMetricRow P1_MinFTE { get; set; }
+        public MonthlyMetricRow P2_MinFTE { get; set; }
+
+        // Row 66 (P1) / Row 67 (P2)
+        public MonthlyMetricRow P1_TotalProductiveHrsPerUOS { get; set; }
+        public MonthlyMetricRow P2_TotalProductiveHrsPerUOS { get; set; }
+    }
+
+    /// <summary>
+    /// Parses the Department Volume Summary section (Excel rows 58-67).
+    /// </summary>
+    public class DepartmentVolumeSummaryParser
+    {
+        // Excel rows 58-67 → 0-indexed: 57-66
+        private const int StartRow = 57;
+        private const int EndRow = 66;
+
+        /// <summary>
+        /// Parses the Department Volume Summary section from the given DataTable (sheet).
+        /// </summary>
+        public static DepartmentVolumeSummary Parse(DataTable sheet)
+        {
+            var rows = ExcelRowExtractor.ExtractRows(sheet, StartRow, EndRow);
+            return MapToModel(rows);
+        }
+
+        /// <summary>
+        /// Maps the 10 extracted rows to the DepartmentVolumeSummary model.
+        /// Rows come in P1/P2 pairs:
+        ///   [0]  Row 58 → P1 Department UOS
+        ///   [1]  Row 59 → P2 Department UOS
+        ///   [2]  Row 60 → P1 Semi-Variable FTEs
+        ///   [3]  Row 61 → P2 Semi-Variable FTEs
+        ///   [4]  Row 62 → P1 Variable Productive Hrs/UOS
+        ///   [5]  Row 63 → P2 Variable Productive Hrs/UOS
+        ///   [6]  Row 64 → P1 Min FTE
+        ///   [7]  Row 65 → P2 Min FTE
+        ///   [8]  Row 66 → P1 Total Productive Hrs/UOS
+        ///   [9]  Row 67 → P2 Total Productive Hrs/UOS
+        /// </summary>
+        private static DepartmentVolumeSummary MapToModel(List<MonthlyMetricRow> rows)
+        {
+            return new DepartmentVolumeSummary
+            {
+                P1_DepartmentUOS = rows[0],
+                P2_DepartmentUOS = rows[1],
+
+                P1_SemiVariableFTEs = rows[2],
+                P2_SemiVariableFTEs = rows[3],
+
+                P1_VariableProductiveHrsPerUOS = rows[4],
+                P2_VariableProductiveHrsPerUOS = rows[5],
+
+                P1_MinFTE = rows[6],
+                P2_MinFTE = rows[7],
+
+                P1_TotalProductiveHrsPerUOS = rows[8],
+                P2_TotalProductiveHrsPerUOS = rows[9]
+            };
+        }
+    }
+
+    #endregion
+
+    #region Main Parser (Entry Point)
+
+    /// <summary>
+    /// Main parser that opens the Excel file once and parses all three sections.
+    /// </summary>
+    public class MonthlyDeptDetailExcelParser
+    {
+        /// <summary>
+        /// Parses all three sections from the Monthly Department Detail Comparison Report.
+        /// Opens the Excel file once and passes the DataTable to each section parser.
+        /// </summary>
+        public static (DepartmentFTESummary FTESummary,
+                        DepartmentLaborExpenseSummary LaborExpenseSummary,
+                        DepartmentVolumeSummary VolumeSummary)
+            ParseAll(string filePath)
+        {
+            System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
+
+            using (var stream = File.Open(filePath, FileMode.Open, FileAccess.Read))
+            using (var reader = ExcelReaderFactory.CreateReader(stream))
+            {
+                var dataSet = reader.AsDataSet();
+                var sheet = dataSet.Tables[0];
+
+                var fteSummary = DepartmentFTESummaryParser.Parse(sheet);
+                var laborExpenseSummary = DepartmentLaborExpenseSummaryParser.Parse(sheet);
+                var volumeSummary = DepartmentVolumeSummaryParser.Parse(sheet);
+
+                return (fteSummary, laborExpenseSummary, volumeSummary);
+            }
+        }
+    }
+
+    #endregion
+}
