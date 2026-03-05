@@ -5,7 +5,7 @@ using System.IO;
 using System.Linq;
 using ExcelDataReader;
 
-namespace WFT.Reports.MonthlyDeptDetail
+namespace ISAS
 {
     /// <summary>
     /// Represents a single metric row with Description + 12 monthly values + Total.
