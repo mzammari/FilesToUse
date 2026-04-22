@@ -1,0 +1,45 @@
+## Context
+This prompt was used to generate a C# parser for the **Monthly Department Detail Comparison Report** — an Excel (.XLS) file with non-sequential column layouts and hidden columns. The goal was to extract structured data from specific report sections for automated validation in our test framework.
+
+---
+
+## The Prompt
+
+```
+You are generating a C# model and parser for Section 1 of the Monthly Department Detail
+Comparison Report Excel file (.XLS).
+
+### Section: Department FTE Summary
+
+**Structure:**
+- Each metric appears in two consecutive rows: one for Plan 1 (P1) and one for Plan 2 (P2).
+- Each row contains exactly 14 non-empty values:
+    1. Description (e.g., "P1 - Employed (Productive) FTEs")
+    2. Jan through Dec (12 monthly values)
+    3. Total (annual)
+
+**Properties (8 metrics × 2 plans = 16 rows):**
+  - Employed (Productive) FTEs
+  - Contract Labor %
+  - Contract FTEs
+  - Total Productive FTEs
+  - Non-Productive %
+  - Non-Productive FTEs
+  - Employed (paid) FTEs
+  - Total FTEs (Paid + Contract)
+
+**Important — Column Layout Constraint:**
+The Excel file contains hidden columns, so cell values are scattered across non-sequential
+column indices (e.g., col 3, 6, 9, 11, 14...). Do NOT use hardcoded column positions.
+Instead, iterate through each cell in the row and collect only non-empty/non-null values.
+The first non-empty value is the Description; the next 12 are monthly values; the last is
+the Total.
+
+**Requirements:**
+- Create a `MonthlyMetricRow` class with: Description (string), Jan–Dec (double), Total (double).
+- Create a `DepartmentFTESummary` class with P1 and P2 properties for each of the 8 metrics.
+- Create a static parser class that extracts the rows and maps them to the model.
+- Round all numeric values to 2 decimal places.
+- All parser methods should be static.
+
+Take this one section at a time. This is Section 1 of 3.
