@@ -1,0 +1,82 @@
+using ClosedXML.Excel;
+
+namespace ISAS_Regression_Automation;
+
+public class FpcAutoFreshParser
+{
+    /// <summary>
+    /// Parses the BATCH_CALC sheet from the FPC Auto Refresh xlsb file.
+    /// Row 1 = UI Field Name headers, Row 2 = DB column name headers, Data starts at Row 3.
+    /// </summary>
+    public List<FpcAutoFreshRecord> Parse(string filePath)
+    {
+        var records = new List<FpcAutoFreshRecord>();
+
+        using var workbook = new XLWorkbook(filePath);
+        var sheet = workbook.Worksheet("BATCH_CALC");
+        int lastRow = sheet.LastRowUsed()?.RowNumber() ?? 0;
+
+        // Data starts at row 3 (row 1 = UI headers, row 2 = DB column headers)
+        for (int row = 3; row <= lastRow; row++)
+        {
+            var record = new FpcAutoFreshRecord
+            {
+                DivisionName        = GetStringValue(sheet, row, "A"),
+                FacilityName        = GetStringValue(sheet, row, "B"),
+                CoId                = GetStringValue(sheet, row, "C"),
+                UnitNum             = GetStringValue(sheet, row, "D"),
+                DeptNum             = GetStringValue(sheet, row, "E"),
+                DeptCategory        = GetStringValue(sheet, row, "F"),
+                TargetCategory      = GetStringValue(sheet, row, "G"),
+                PlanId              = GetStringValue(sheet, row, "H"),
+                PlanStatusId        = GetStringValue(sheet, row, "I"),
+                UseCurrActVol       = GetStringValue(sheet, row, "J"),
+                DfltSelTgtMon       = GetStringValue(sheet, row, "K"),
+                SelTgtMon           = GetStringValue(sheet, row, "L"),
+                MonthCalLogic       = GetStringValue(sheet, row, "M"),
+                SelHrsUosInd        = GetStringValue(sheet, row, "N"),
+                SelMinFtesInd       = GetStringValue(sheet, row, "O"),
+                TargetOverride      = GetStringValue(sheet, row, "P"),
+                PrevMonSelVolInd    = GetStringValue(sheet, row, "Q"),
+
+                ProductiveMinFtesTarget_MinFtes              = GetDoubleValue(sheet, row, "R"),
+                ProductiveMinFtesOverride_OvrMinFtes         = GetDoubleValue(sheet, row, "S"),
+                ProductiveHoursUosTarget_HrsUos              = GetDoubleValue(sheet, row, "T"),
+                ProductiveHoursUosOverride_OvrHrsUos         = GetDoubleValue(sheet, row, "U"),
+                TotalTargetPaidFtesCore_CorePaidFtes         = GetDoubleValue(sheet, row, "V"),
+                TotalTargetPaidFtesAverage_AvgPaidFtes       = GetDoubleValue(sheet, row, "W"),
+                TotalTargetPaidFtesPeak_PeakPaidFtes         = GetDoubleValue(sheet, row, "X"),
+                TotalTargetProductiveFtesCore_CoreProdFtes   = GetDoubleValue(sheet, row, "Y"),
+                TotalTargetProductiveFtesAverage_AvgProdFtes = GetDoubleValue(sheet, row, "Z"),
+                TotalTargetProductiveFtesPeak_PeakProdFtes   = GetDoubleValue(sheet, row, "AA"),
+                CalendarBusinessDayAverageVolumeCore_CoreVol  = GetDoubleValue(sheet, row, "AB"),
+                CalendarBusinessDayAverageVolumeAverage_AvgVol = GetDoubleValue(sheet, row, "AC"),
+                CalendarBusinessDayAverageVolumePeak_PeakVol  = GetDoubleValue(sheet, row, "AD")
+            };
+
+            records.Add(record);
+        }
+
+        return records;
+    }
+
+    private static string GetStringValue(IXLWorksheet sheet, int row, string column)
+    {
+        var cell = sheet.Cell($"{column}{row}");
+        return cell.IsEmpty() ? string.Empty : cell.GetString().Trim();
+    }
+
+    private static double GetDoubleValue(IXLWorksheet sheet, int row, string column)
+    {
+        var cell = sheet.Cell($"{column}{row}");
+        if (cell.IsEmpty()) return 0.0;
+
+        if (cell.Value.IsNumber)
+            return Math.Round(cell.GetDouble(), 2);
+
+        if (double.TryParse(cell.GetString(), out double result))
+            return Math.Round(result, 2);
+
+        return 0.0;
+    }
+}
