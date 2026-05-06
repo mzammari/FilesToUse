@@ -1,0 +1,35 @@
+namespace ISAS_Regression_Automation;
+
+public class FpcAutoFreshRecord
+{
+    public string DivisionName { get; set; }           // A
+    public string FacilityName { get; set; }           // B
+    public string CoId { get; set; }                   // C
+    public string UnitNum { get; set; }                // D
+    public string DeptNum { get; set; }                // E
+    public string DeptCategory { get; set; }           // F
+    public string TargetCategory { get; set; }         // G
+    public string PlanId { get; set; }                 // H
+    public string PlanStatusId { get; set; }           // I
+    public string UseCurrActVol { get; set; }          // J
+    public string DfltSelTgtMon { get; set; }          // K
+    public string SelTgtMon { get; set; }              // L
+    public string MonthCalLogic { get; set; }          // M
+    public string SelHrsUosInd { get; set; }           // N
+    public string SelMinFtesInd { get; set; }          // O
+    public string TargetOverride { get; set; }         // P
+    public string PrevMonSelVolInd { get; set; }       // Q
+    public double ProductiveMinFtesTarget_MinFtes { get; set; }                  // R
+    public double ProductiveMinFtesOverride_OvrMinFtes { get; set; }             // S
+    public double ProductiveHoursUosTarget_HrsUos { get; set; }                  // T
+    public double ProductiveHoursUosOverride_OvrHrsUos { get; set; }             // U
+    public double TotalTargetPaidFtesCore_CorePaidFtes { get; set; }             // V
+    public double TotalTargetPaidFtesAverage_AvgPaidFtes { get; set; }           // W
+    public double TotalTargetPaidFtesPeak_PeakPaidFtes { get; set; }             // X
+    public double TotalTargetProductiveFtesCore_CoreProdFtes { get; set; }       // Y
+    public double TotalTargetProductiveFtesAverage_AvgProdFtes { get; set; }     // Z
+    public double TotalTargetProductiveFtesPeak_PeakProdFtes { get; set; }       // AA
+    public double CalendarBusinessDayAverageVolumeCore_CoreVol { get; set; }     // AB
+    public double CalendarBusinessDayAverageVolumeAverage_AvgVol { get; set; }   // AC
+    public double CalendarBusinessDayAverageVolumePeak_PeakVol { get; set; }     // AD
+}
