@@ -1,7 +1,10 @@
-using ClosedXML.Excel;
+using ExcelDataReader;
 using System;
 using System.Collections.Generic;
+using System.Data;
+using System.IO;
 using System.Linq;
+using System.Text;
 
 namespace ISAS.Automation
 {
@@ -11,72 +14,66 @@ namespace ISAS.Automation
     public class ColumnInfo
     {
         public string HeaderName { get; set; }
-        public int ColumnIndex { get; set; }       // 1-based (ClosedXML convention)
-        public string ColumnLetter { get; set; }    // "A", "B", ... "AA", etc.
-        public int HeaderRow { get; set; }           // Which row the header was found in
-        public bool IsHidden { get; set; }           // Whether the column is hidden in Excel
+        public int ColumnIndex { get; set; }       // 0-based (DataTable convention)
+        public string ColumnLetter { get; set; }   // "A", "B", ... "AA", etc.
+        public int HeaderRow { get; set; }          // Which row the header was found in
 
         public override string ToString()
-            => $"{ColumnLetter} (Col {ColumnIndex}){(IsHidden ? " [HIDDEN]" : "")} -> \"{HeaderName}\" [Row {HeaderRow}]";
+            => $"{ColumnLetter} (Col {ColumnIndex}) -> \"{HeaderName}\" [Row {HeaderRow}]";
     }
 
     /// <summary>
-    /// Auto-discovers column headers from an Excel worksheet without hardcoding positions.
+    /// Auto-discovers column headers from an Excel file (.xls or .xlsx).
+    /// Uses ExcelDataReader to support both formats.
     /// </summary>
     public static class ExcelHeaderDiscovery
     {
         /// <summary>
-        /// Scans a worksheet and returns a dictionary of header name -> ColumnInfo.
-        /// Keys are normalized to uppercase/trimmed for easy lookup.
+        /// Register the encoding provider. Call once at app startup or it's called automatically.
         /// </summary>
-        /// <param name="filePath">Path to the Excel file.</param>
-        /// <param name="sheetName">Sheet name (null = first sheet).</param>
-        /// <param name="headerRow">Row number to scan (0 = auto-detect first non-empty row).</param>
-        /// <param name="normalize">If true, dictionary keys are upper-cased and trimmed.</param>
-        public static Dictionary<string, ColumnInfo> GetHeaders(
-            string filePath,
-            string sheetName = null,
-            int headerRow = 0,
-            bool normalize = true)
+        static ExcelHeaderDiscovery()
         {
-            using var workbook = new XLWorkbook(filePath);
-            var worksheet = sheetName != null
-                ? workbook.Worksheet(sheetName)
-                : workbook.Worksheets.First();
-
-            return GetHeaders(worksheet, headerRow, normalize);
+            Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
         }
 
         /// <summary>
-        /// Scans a worksheet and returns a dictionary of header name -> ColumnInfo.
-        /// Hidden columns are skipped by default.
+        /// Reads an Excel file into a DataTable. Supports .xls and .xlsx.
+        /// </summary>
+        public static DataTable ReadSheet(string filePath, string sheetName = null)
+        {
+            using var stream = File.Open(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var reader = ExcelReaderFactory.CreateReader(stream);
+
+            var dataSet = reader.AsDataSet();
+
+            if (dataSet.Tables.Count == 0)
+                throw new Exception("No sheets found in the Excel file.");
+
+            return sheetName != null
+                ? dataSet.Tables[sheetName] ?? throw new KeyNotFoundException($"Sheet '{sheetName}' not found.")
+                : dataSet.Tables[0];
+        }
+
+        /// <summary>
+        /// Scans a DataTable and returns a dictionary of header name -> ColumnInfo.
         /// </summary>
         public static Dictionary<string, ColumnInfo> GetHeaders(
-            IXLWorksheet worksheet,
+            DataTable table,
             int headerRow = 0,
-            bool normalize = true,
-            bool skipHidden = true)
+            bool normalize = true)
         {
             // Auto-detect header row if not specified
             if (headerRow <= 0)
-                headerRow = DetectHeaderRow(worksheet);
+                headerRow = DetectHeaderRow(table);
 
             var headers = new Dictionary<string, ColumnInfo>(
                 normalize ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
 
-            var row = worksheet.Row(headerRow);
-            int lastCol = worksheet.LastColumnUsed()?.ColumnNumber() ?? 0;
+            var row = table.Rows[headerRow];
 
-            for (int col = 1; col <= lastCol; col++)
+            for (int col = 0; col < table.Columns.Count; col++)
             {
-                bool isHidden = worksheet.Column(col).IsHidden;
-
-                // Skip hidden columns if requested
-                if (skipHidden && isHidden)
-                    continue;
-
-                var cell = row.Cell(col);
-                var value = cell.GetString()?.Trim();
+                string value = row[col]?.ToString()?.Trim();
 
                 if (string.IsNullOrWhiteSpace(value))
                     continue;
@@ -93,9 +90,8 @@ namespace ISAS.Automation
                 {
                     HeaderName = value,
                     ColumnIndex = col,
-                    ColumnLetter = ColumnIndexToLetter(col),
-                    HeaderRow = headerRow,
-                    IsHidden = isHidden
+                    ColumnLetter = ColumnIndexToLetter(col + 1), // convert 0-based to 1-based for letter
+                    HeaderRow = headerRow
                 };
             }
 
@@ -103,39 +99,40 @@ namespace ISAS.Automation
         }
 
         /// <summary>
-        /// Returns a flat list of all discovered column headers (useful for logging/display).
+        /// Convenience: get headers directly from file path.
         /// </summary>
-        public static List<ColumnInfo> GetHeaderList(
+        public static Dictionary<string, ColumnInfo> GetHeaders(
             string filePath,
             string sheetName = null,
-            int headerRow = 0)
+            int headerRow = 0,
+            bool normalize = true)
         {
-            return GetHeaders(filePath, sheetName, headerRow).Values.ToList();
+            var table = ReadSheet(filePath, sheetName);
+            return GetHeaders(table, headerRow, normalize);
         }
 
         /// <summary>
-        /// Auto-detects which row contains headers by finding the first row 
-        /// with multiple non-empty cells (heuristic).
+        /// Auto-detects which row contains headers by finding the first row
+        /// with multiple non-empty cells.
         /// </summary>
-        private static int DetectHeaderRow(IXLWorksheet worksheet, int maxScanRows = 20)
+        private static int DetectHeaderRow(DataTable table, int maxScanRows = 20)
         {
-            for (int row = 1; row <= maxScanRows; row++)
+            int rowsToScan = Math.Min(table.Rows.Count, maxScanRows);
+
+            for (int row = 0; row < rowsToScan; row++)
             {
                 int nonEmptyCount = 0;
-                int lastCol = worksheet.LastColumnUsed()?.ColumnNumber() ?? 0;
-
-                for (int col = 1; col <= lastCol; col++)
+                for (int col = 0; col < table.Columns.Count; col++)
                 {
-                    if (!string.IsNullOrWhiteSpace(worksheet.Cell(row, col).GetString()))
+                    if (!string.IsNullOrWhiteSpace(table.Rows[row][col]?.ToString()))
                         nonEmptyCount++;
                 }
 
-                // A header row typically has 2+ populated cells
                 if (nonEmptyCount >= 2)
                     return row;
             }
 
-            return 1; // Fallback to row 1
+            return 0; // Fallback to row 0
         }
 
         /// <summary>
