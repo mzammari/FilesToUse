@@ -1,0 +1,171 @@
+using ClosedXML.Excel;
+using System;
+using System.Collections.Generic;
+using System.Dynamic;
+using System.Linq;
+
+namespace ISAS.Automation
+{
+    /// <summary>
+    /// Parses an Excel file into row objects accessible by metric name and column name.
+    /// 
+    /// Usage:
+    ///   var metrics = new List&lt;string&gt; { "Employed (Productive) FTEs:", "Contract FTEs", "Total Productive FTEs" };
+    ///   var columns = new List&lt;string&gt; { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Total" };
+    ///   
+    ///   var report = ExcelParser.ParseExcel("Report.xlsx", metrics, columns, "double");
+    ///   
+    ///   Console.WriteLine(report.EmployedProductiveFTEs.Jan);
+    ///   Console.WriteLine(report.ContractFTEs.Total);
+    ///   Console.WriteLine(report.TotalProductiveFTEs.Jun);
+    /// </summary>
+    public class ExcelParser
+    {
+        public static dynamic ParseExcel(
+            string fileLocation,
+            List<string> metrics,
+            List<string> columns,
+            string dataType = "double",
+            string sheetName = null,
+            int headerRow = 0)
+        {
+            using var workbook = new XLWorkbook(fileLocation);
+            var worksheet = sheetName != null
+                ? workbook.Worksheet(sheetName)
+                : workbook.Worksheets.First();
+
+            // Discover headers and their positions (skips hidden columns)
+            var headers = ExcelHeaderDiscovery.GetHeaders(worksheet, headerRow);
+            int detectedHeaderRow = headers.Values.FirstOrDefault()?.HeaderRow ?? 1;
+
+            // Find the key column (first column, where metric names live)
+            int keyColIndex = FindKeyColumn(worksheet, detectedHeaderRow, metrics);
+
+            // Map requested columns to their Excel positions
+            var columnMap = new List<(string Name, string NormalizedName, int ColIndex)>();
+            foreach (var col in columns)
+            {
+                var colInfo = headers.Values.FirstOrDefault(h =>
+                    h.HeaderName.Equals(col, StringComparison.OrdinalIgnoreCase));
+
+                if (colInfo != null)
+                    columnMap.Add((col, NormalizeKey(col), colInfo.ColumnIndex));
+                else
+                    Console.WriteLine($"Warning: Column '{col}' not found in Excel.");
+            }
+
+            // Build the report object
+            dynamic report = new ExpandoObject();
+            var reportDict = (IDictionary<string, object>)report;
+
+            // Scan rows and match metrics
+            int lastRow = worksheet.LastRowUsed()?.RowNumber() ?? detectedHeaderRow;
+            var remaining = new HashSet<string>(metrics, StringComparer.OrdinalIgnoreCase);
+
+            for (int row = detectedHeaderRow + 1; row <= lastRow && remaining.Count > 0; row++)
+            {
+                string cellValue = worksheet.Cell(row, keyColIndex).GetString()?.Trim();
+                if (cellValue == null || !remaining.Contains(cellValue))
+                    continue;
+
+                // Create a dynamic object for this metric row
+                dynamic metricRow = new ExpandoObject();
+                var metricDict = (IDictionary<string, object>)metricRow;
+
+                foreach (var (name, normalizedName, colIndex) in columnMap)
+                {
+                    var cell = worksheet.Cell(row, colIndex);
+                    metricDict[normalizedName] = ConvertCell(cell, dataType);
+                }
+
+                // Add to report with normalized metric name
+                string metricKey = NormalizeKey(cellValue);
+                reportDict[metricKey] = metricRow;
+
+                remaining.Remove(cellValue);
+            }
+
+            if (remaining.Count > 0)
+                Console.WriteLine($"Warning: Metrics not found: {string.Join(", ", remaining)}");
+
+            return report;
+        }
+
+        /// <summary>
+        /// Auto-detect which column contains the metric names
+        /// by scanning the first few columns for a match.
+        /// </summary>
+        private static int FindKeyColumn(IXLWorksheet worksheet, int headerRow, List<string> metrics)
+        {
+            int lastRow = worksheet.LastRowUsed()?.RowNumber() ?? headerRow;
+            int lastCol = worksheet.LastColumnUsed()?.ColumnNumber() ?? 1;
+            var metricSet = new HashSet<string>(metrics, StringComparer.OrdinalIgnoreCase);
+
+            // Check first 5 columns for any metric match
+            for (int col = 1; col <= Math.Min(lastCol, 5); col++)
+            {
+                for (int row = headerRow + 1; row <= lastRow; row++)
+                {
+                    string val = worksheet.Cell(row, col).GetString()?.Trim();
+                    if (val != null && metricSet.Contains(val))
+                        return col;
+                }
+            }
+
+            return 1; // fallback to column A
+        }
+
+        private static object ConvertCell(IXLCell cell, string dataType)
+        {
+            if (cell.IsEmpty()) return GetDefault(dataType);
+
+            try
+            {
+                return dataType.ToLower() switch
+                {
+                    "double" => cell.GetDouble(),
+                    "decimal" => (decimal)cell.GetDouble(),
+                    "int" => (int)cell.GetDouble(),
+                    "string" => cell.GetString()?.Trim(),
+                    _ => cell.GetString()?.Trim()
+                };
+            }
+            catch
+            {
+                return GetDefault(dataType);
+            }
+        }
+
+        private static object GetDefault(string dataType)
+        {
+            return dataType.ToLower() switch
+            {
+                "double" => 0.0,
+                "decimal" => 0m,
+                "int" => 0,
+                "string" => string.Empty,
+                _ => null
+            };
+        }
+
+        /// <summary>
+        /// "Employed (Productive) FTEs:" -> "EmployedProductiveFTEs"
+        /// Strips spaces, parentheses, colons, special chars.
+        /// </summary>
+        private static string NormalizeKey(string input)
+        {
+            if (string.IsNullOrWhiteSpace(input)) return string.Empty;
+
+            // Remove special characters: ( ) : % + , .
+            var cleaned = new string(input
+                .Where(c => char.IsLetterOrDigit(c) || c == ' ' || c == '_' || c == '-')
+                .ToArray());
+
+            var parts = cleaned.Split(new[] { ' ', '_', '-' },
+                StringSplitOptions.RemoveEmptyEntries);
+
+            return string.Concat(parts.Select(p =>
+                char.ToUpperInvariant(p[0]) + (p.Length > 1 ? p.Substring(1) : "")));
+        }
+    }
+}
