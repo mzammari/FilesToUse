@@ -1,27 +1,28 @@
-using ClosedXML.Excel;
 using System;
 using System.Collections.Generic;
-using System.Dynamic;
+using System.Data;
 using System.Linq;
 
 namespace ISAS.Automation
 {
     /// <summary>
-    /// Parses an Excel file into row objects accessible by metric name and column name.
+    /// Parses an Excel file (.xls or .xlsx) into a nested dictionary.
     /// 
     /// Usage:
-    ///   var metrics = new List&lt;string&gt; { "Employed (Productive) FTEs:", "Contract FTEs", "Total Productive FTEs" };
-    ///   var columns = new List&lt;string&gt; { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Total" };
+    ///   var metrics = ExcelParser.ToList("Employed (Productive) FTEs:, Contract FTEs, Total Productive FTEs");
+    ///   var columns = ExcelParser.ToList("Jan, Feb, Mar, Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec, Total");
     ///   
-    ///   var report = ExcelParser.ParseExcel("Report.xlsx", metrics, columns, "double");
+    ///   var report = ExcelParser.ParseExcel("Report.xls", metrics, columns);
     ///   
-    ///   Console.WriteLine(report.EmployedProductiveFTEs.Jan);
-    ///   Console.WriteLine(report.ContractFTEs.Total);
-    ///   Console.WriteLine(report.TotalProductiveFTEs.Jun);
+    ///   double jan = report["Employed (Productive) FTEs:"]["Jan"];
+    ///   double total = report["Contract FTEs"]["Total"];
     /// </summary>
     public class ExcelParser
     {
-        public static dynamic ParseExcel(
+        /// <summary>
+        /// Parse Excel (.xls or .xlsx) into Dictionary&lt;metricName, Dictionary&lt;columnName, value&gt;&gt;.
+        /// </summary>
+        public static Dictionary<string, Dictionary<string, double>> ParseExcel(
             string fileLocation,
             List<string> metrics,
             List<string> columns,
@@ -29,187 +30,199 @@ namespace ISAS.Automation
             string sheetName = null,
             int headerRow = 0)
         {
-            using var workbook = new XLWorkbook(fileLocation);
-            var worksheet = sheetName != null
-                ? workbook.Worksheet(sheetName)
-                : workbook.Worksheets.First();
+            // Read the sheet into a DataTable (works for .xls and .xlsx)
+            var table = ExcelHeaderDiscovery.ReadSheet(fileLocation, sheetName);
 
-            // Discover headers and their positions (skips hidden columns)
-            var headers = ExcelHeaderDiscovery.GetHeaders(worksheet, headerRow);
-            int detectedHeaderRow = headers.Values.FirstOrDefault()?.HeaderRow ?? 1;
+            // Discover headers and their positions
+            var headers = ExcelHeaderDiscovery.GetHeaders(table, headerRow);
+            int detectedHeaderRow = headers.Values.FirstOrDefault()?.HeaderRow ?? 0;
 
-            // Find the key column (first column, where metric names live)
-            int keyColIndex = FindKeyColumn(worksheet, detectedHeaderRow, metrics);
+            // Find the key column (where metric names live)
+            int keyColIndex = FindKeyColumn(table, detectedHeaderRow, metrics);
 
-            // Map requested columns to their Excel positions
-            var columnMap = new List<(string Name, string NormalizedName, int ColIndex)>();
+            // Map requested columns to their DataTable positions
+            var columnMap = new List<(string Name, int ColIndex)>();
             foreach (var col in columns)
             {
                 var colInfo = headers.Values.FirstOrDefault(h =>
                     h.HeaderName.Equals(col, StringComparison.OrdinalIgnoreCase));
 
                 if (colInfo != null)
-                    columnMap.Add((col, NormalizeKey(col), colInfo.ColumnIndex));
+                    columnMap.Add((col, colInfo.ColumnIndex));
                 else
                     Console.WriteLine($"Warning: Column '{col}' not found in Excel.");
             }
 
-            // Build the report object
-            dynamic report = new ExpandoObject();
-            var reportDict = (IDictionary<string, object>)report;
+            // Build the result
+            var result = new Dictionary<string, Dictionary<string, double>>(StringComparer.OrdinalIgnoreCase);
 
             // Scan rows and match metrics
-            int lastRow = worksheet.LastRowUsed()?.RowNumber() ?? detectedHeaderRow;
             var remaining = new HashSet<string>(metrics, StringComparer.OrdinalIgnoreCase);
 
-            for (int row = detectedHeaderRow + 1; row <= lastRow && remaining.Count > 0; row++)
+            for (int row = detectedHeaderRow + 1; row < table.Rows.Count && remaining.Count > 0; row++)
             {
-                string cellValue = worksheet.Cell(row, keyColIndex).GetString()?.Trim();
+                string cellValue = table.Rows[row][keyColIndex]?.ToString()?.Trim();
                 if (cellValue == null || !remaining.Contains(cellValue))
                     continue;
 
-                // Create a dynamic object for this metric row
-                dynamic metricRow = new ExpandoObject();
-                var metricDict = (IDictionary<string, object>)metricRow;
+                var rowData = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
 
-                foreach (var (name, normalizedName, colIndex) in columnMap)
+                foreach (var (name, colIndex) in columnMap)
                 {
-                    var cell = worksheet.Cell(row, colIndex);
-                    metricDict[normalizedName] = ConvertCell(cell, dataType);
+                    object cellObj = table.Rows[row][colIndex];
+                    rowData[name] = ConvertToDouble(cellObj);
                 }
 
-                // Add to report with normalized metric name
-                string metricKey = NormalizeKey(cellValue);
-                reportDict[metricKey] = metricRow;
-
+                result[cellValue] = rowData;
                 remaining.Remove(cellValue);
             }
 
             if (remaining.Count > 0)
                 Console.WriteLine($"Warning: Metrics not found: {string.Join(", ", remaining)}");
 
-            return report;
+            return result;
         }
 
         /// <summary>
-        /// Auto-detect which column contains the metric names
-        /// by scanning the first few columns for a match.
+        /// Compare Excel values against DB values.
+        /// Returns a list of results with pass/fail.
         /// </summary>
-        private static int FindKeyColumn(IXLWorksheet worksheet, int headerRow, List<string> metrics)
+        public static List<CompareResult> Compare(
+            Dictionary<string, Dictionary<string, double>> excelData,
+            Dictionary<string, Dictionary<string, double>> dbData,
+            double tolerance = 0.01)
         {
-            int lastRow = worksheet.LastRowUsed()?.RowNumber() ?? headerRow;
-            int lastCol = worksheet.LastColumnUsed()?.ColumnNumber() ?? 1;
-            var metricSet = new HashSet<string>(metrics, StringComparer.OrdinalIgnoreCase);
+            var results = new List<CompareResult>();
 
-            // Check first 5 columns for any metric match
-            for (int col = 1; col <= Math.Min(lastCol, 5); col++)
+            foreach (var metric in excelData)
             {
-                for (int row = headerRow + 1; row <= lastRow; row++)
+                if (!dbData.TryGetValue(metric.Key, out var dbRow))
                 {
-                    string val = worksheet.Cell(row, col).GetString()?.Trim();
+                    results.Add(new CompareResult
+                    {
+                        Metric = metric.Key,
+                        Column = "*",
+                        ExcelValue = 0,
+                        DbValue = 0,
+                        Match = false,
+                        Note = "Metric not found in DB"
+                    });
+                    continue;
+                }
+
+                foreach (var col in metric.Value)
+                {
+                    double dbVal = dbRow.TryGetValue(col.Key, out var v) ? v : 0;
+                    bool match = Math.Abs(col.Value - dbVal) <= tolerance;
+
+                    results.Add(new CompareResult
+                    {
+                        Metric = metric.Key,
+                        Column = col.Key,
+                        ExcelValue = col.Value,
+                        DbValue = dbVal,
+                        Match = match
+                    });
+                }
+            }
+
+            return results;
+        }
+
+        /// <summary>
+        /// Print comparison results. Shows all or only mismatches.
+        /// </summary>
+        public static void PrintCompareResults(List<CompareResult> results, bool onlyMismatches = false)
+        {
+            var filtered = onlyMismatches ? results.Where(r => !r.Match).ToList() : results;
+
+            Console.WriteLine($"\n{"Metric",-40} {"Column",-8} {"Excel",>12} {"DB",>12} {"Match",>8}");
+            Console.WriteLine(new string('-', 82));
+
+            foreach (var r in filtered)
+            {
+                Console.WriteLine($"{r.Metric,-40} {r.Column,-8} {r.ExcelValue,12:F4} {r.DbValue,12:F4} {(r.Match ? "PASS" : "FAIL"),>8}");
+            }
+
+            int total = results.Count;
+            int passed = results.Count(r => r.Match);
+            Console.WriteLine(new string('-', 82));
+            Console.WriteLine($"Total: {total} | Passed: {passed} | Failed: {total - passed}");
+        }
+
+        /// <summary>
+        /// Convert comma-delimited string to List&lt;string&gt;.
+        /// </summary>
+        public static List<string> ToList(string commaDelimited)
+        {
+            return commaDelimited
+                .Split(',')
+                .Select(s => s.Trim())
+                .Where(s => !string.IsNullOrEmpty(s))
+                .ToList();
+        }
+
+        private static double ConvertToDouble(object cellObj)
+        {
+            if (cellObj == null || cellObj == DBNull.Value)
+                return 0.0;
+
+            // Already a number type
+            if (cellObj is double d) return d;
+            if (cellObj is decimal dec) return (double)dec;
+            if (cellObj is int i) return i;
+            if (cellObj is long l) return l;
+            if (cellObj is float f) return f;
+
+            // It's a string — parse it
+            string text = cellObj.ToString()?.Trim();
+            if (string.IsNullOrWhiteSpace(text)) return 0.0;
+
+            // Percentage string: "52%", "4.21%"
+            if (text.EndsWith("%"))
+            {
+                string numPart = text.TrimEnd('%').Trim();
+                if (double.TryParse(numPart, out double pctValue))
+                    return pctValue / 100.0;
+            }
+
+            // Currency/formatted: "$1,234.56"
+            string cleaned = text.Replace("$", "").Replace(",", "").Trim();
+            if (double.TryParse(cleaned, out double parsed))
+                return parsed;
+
+            return 0.0;
+        }
+
+        private static int FindKeyColumn(DataTable table, int headerRow, List<string> metrics)
+        {
+            var metricSet = new HashSet<string>(metrics, StringComparer.OrdinalIgnoreCase);
+            int maxCol = Math.Min(table.Columns.Count, 5);
+
+            for (int col = 0; col < maxCol; col++)
+            {
+                for (int row = headerRow + 1; row < table.Rows.Count; row++)
+                {
+                    string val = table.Rows[row][col]?.ToString()?.Trim();
                     if (val != null && metricSet.Contains(val))
                         return col;
                 }
             }
 
-            return 1; // fallback to column A
+            return 0;
         }
+    }
 
-        private static object ConvertCell(IXLCell cell, string dataType)
-        {
-            if (cell.IsEmpty()) return GetDefault(dataType);
+    public class CompareResult
+    {
+        public string Metric { get; set; }
+        public string Column { get; set; }
+        public double ExcelValue { get; set; }
+        public double DbValue { get; set; }
+        public bool Match { get; set; }
+        public string Note { get; set; }
 
-            try
-            {
-                // First try: get the underlying value directly (works for true numbers)
-                if (cell.Value.IsNumber)
-                {
-                    double numValue = cell.Value.GetNumber();
-                    return dataType.ToLower() switch
-                    {
-                        "double" => numValue,
-                        "decimal" => (decimal)numValue,
-                        "int" => (int)numValue,
-                        "string" => cell.GetFormattedString(),
-                        _ => numValue
-                    };
-                }
-
-                // Second try: the cell is text — parse it manually
-                string text = cell.GetString()?.Trim();
-                if (string.IsNullOrWhiteSpace(text)) return GetDefault(dataType);
-
-                if (dataType.ToLower() == "string")
-                    return text;
-
-                // Handle percentage strings: "52%", "4.21%", "0.0%"
-                if (text.EndsWith("%"))
-                {
-                    string numPart = text.TrimEnd('%').Trim();
-                    if (double.TryParse(numPart, out double pctValue))
-                    {
-                        double asDecimal = pctValue / 100.0;
-                        return dataType.ToLower() switch
-                        {
-                            "double" => asDecimal,
-                            "decimal" => (decimal)asDecimal,
-                            "int" => (int)asDecimal,
-                            _ => asDecimal
-                        };
-                    }
-                }
-
-                // Handle currency strings: "$1,234.56"
-                string cleaned = text.Replace("$", "").Replace(",", "").Trim();
-                if (double.TryParse(cleaned, out double parsed))
-                {
-                    return dataType.ToLower() switch
-                    {
-                        "double" => parsed,
-                        "decimal" => (decimal)parsed,
-                        "int" => (int)parsed,
-                        _ => parsed
-                    };
-                }
-
-                return GetDefault(dataType);
-            }
-            catch
-            {
-                return GetDefault(dataType);
-            }
-        }
-
-        private static object GetDefault(string dataType)
-        {
-            return dataType.ToLower() switch
-            {
-                "double" => 0.0,
-                "decimal" => 0m,
-                "int" => 0,
-                "string" => string.Empty,
-                _ => null
-            };
-        }
-
-        /// <summary>
-        /// "Employed (Productive) FTEs:" -> "EmployedProductiveFTEs"
-        /// Strips spaces, parentheses, colons, special chars.
-        /// </summary>
-        private static string NormalizeKey(string input)
-        {
-            if (string.IsNullOrWhiteSpace(input)) return string.Empty;
-
-            // Remove special characters: ( ) : % + , .
-            var cleaned = new string(input
-                .Where(c => char.IsLetterOrDigit(c) || c == ' ' || c == '_' || c == '-')
-                .ToArray());
-
-            var parts = cleaned.Split(new[] { ' ', '_', '-' },
-                StringSplitOptions.RemoveEmptyEntries);
-
-            return string.Concat(parts.Select(p =>
-                char.ToUpperInvariant(p[0]) + (p.Length > 1 ? p.Substring(1) : "")));
-        }
+        public override string ToString()
+            => $"{Metric} | {Column}: Excel={ExcelValue:F4}, DB={DbValue:F4} -> {(Match ? "PASS" : "FAIL")}";
     }
 }
