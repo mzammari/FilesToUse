@@ -121,14 +121,58 @@ namespace ISAS.Automation
 
             try
             {
-                return dataType.ToLower() switch
+                // First try: get the underlying value directly (works for true numbers)
+                if (cell.Value.IsNumber)
                 {
-                    "double" => cell.GetDouble(),
-                    "decimal" => (decimal)cell.GetDouble(),
-                    "int" => (int)cell.GetDouble(),
-                    "string" => cell.GetString()?.Trim(),
-                    _ => cell.GetString()?.Trim()
-                };
+                    double numValue = cell.Value.GetNumber();
+                    return dataType.ToLower() switch
+                    {
+                        "double" => numValue,
+                        "decimal" => (decimal)numValue,
+                        "int" => (int)numValue,
+                        "string" => cell.GetFormattedString(),
+                        _ => numValue
+                    };
+                }
+
+                // Second try: the cell is text — parse it manually
+                string text = cell.GetString()?.Trim();
+                if (string.IsNullOrWhiteSpace(text)) return GetDefault(dataType);
+
+                if (dataType.ToLower() == "string")
+                    return text;
+
+                // Handle percentage strings: "52%", "4.21%", "0.0%"
+                if (text.EndsWith("%"))
+                {
+                    string numPart = text.TrimEnd('%').Trim();
+                    if (double.TryParse(numPart, out double pctValue))
+                    {
+                        double asDecimal = pctValue / 100.0;
+                        return dataType.ToLower() switch
+                        {
+                            "double" => asDecimal,
+                            "decimal" => (decimal)asDecimal,
+                            "int" => (int)asDecimal,
+                            _ => asDecimal
+                        };
+                    }
+                }
+
+                // Handle currency strings: "$1,234.56"
+                string cleaned = text.Replace("$", "").Replace(",", "").Trim();
+                if (double.TryParse(cleaned, out double parsed))
+                {
+                    return dataType.ToLower() switch
+                    {
+                        "double" => parsed,
+                        "decimal" => (decimal)parsed,
+                        "int" => (int)parsed,
+                        _ => parsed
+                    };
+                }
+
+                return GetDefault(dataType);
             }
             catch
             {
