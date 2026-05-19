@@ -1,0 +1,67 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+
+namespace ISAS.Automation
+{
+    public static class CodeGenerator
+    {
+        /// <summary>
+        /// Generates variable assignment lines and writes to a text file.
+        /// 
+        /// Usage:
+        ///   var metrics = ExcelParser.ToList("Employed (Productive) FTEs:, Contract FTEs");
+        ///   var columns = ExcelParser.ToList("Jan, Feb, Mar, Total");
+        ///   CodeGenerator.GenerateVariables(metrics, columns, "output.txt");
+        /// 
+        /// Output:
+        ///   var EmployedProductiveFTEs_Jan = excelData["Employed (Productive) FTEs:"]["Jan"];
+        ///   var EmployedProductiveFTEs_Feb = excelData["Employed (Productive) FTEs:"]["Feb"];
+        ///   ...
+        /// </summary>
+        public static void GenerateVariables(
+            List<string> metrics,
+            List<string> columns,
+            string outputFilePath,
+            string dictionaryName = "excelData")
+        {
+            var lines = new List<string>();
+
+            foreach (var metric in metrics)
+            {
+                string metricVar = NormalizeKey(metric);
+                lines.Add($"// {metric}");
+
+                foreach (var col in columns)
+                {
+                    string varName = $"{metricVar}_{col}";
+                    lines.Add($"var {varName} = {dictionaryName}[\"{metric}\"][\"{col}\"];");
+                }
+
+                lines.Add(""); // blank line between metrics
+            }
+
+            File.WriteAllLines(outputFilePath, lines);
+            Console.WriteLine($"Generated {metrics.Count * columns.Count} variables -> {outputFilePath}");
+        }
+
+        /// <summary>
+        /// "Employed (Productive) FTEs:" -> "EmployedProductiveFTEs"
+        /// </summary>
+        private static string NormalizeKey(string input)
+        {
+            if (string.IsNullOrWhiteSpace(input)) return string.Empty;
+
+            var cleaned = new string(input
+                .Where(c => char.IsLetterOrDigit(c) || c == ' ' || c == '_' || c == '-')
+                .ToArray());
+
+            var parts = cleaned.Split(new[] { ' ', '_', '-' },
+                StringSplitOptions.RemoveEmptyEntries);
+
+            return string.Concat(parts.Select(p =>
+                char.ToUpperInvariant(p[0]) + (p.Length > 1 ? p.Substring(1) : "")));
+        }
+    }
+}
