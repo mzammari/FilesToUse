@@ -35,7 +35,8 @@ namespace ISAS.Automation
 
                 foreach (var col in columns)
                 {
-                    string varName = $"{metricVar}_{col}";
+                    string colVar = NormalizeKey(col);
+                    string varName = $"{metricVar}_{colVar}";
                     lines.Add($"var {varName} = {dictionaryName}[\"{metric}\"][\"{col}\"];");
                 }
 
@@ -48,10 +49,21 @@ namespace ISAS.Automation
 
         /// <summary>
         /// "Employed (Productive) FTEs:" -> "EmployedProductiveFTEs"
+        /// "Contract Labor %" -> "ContractLaborPercentage"
+        /// "Revenue $" -> "RevenueDollar"
+        /// "Prior 12 Mon" -> "Prior12Mon"
         /// </summary>
         private static string NormalizeKey(string input)
         {
             if (string.IsNullOrWhiteSpace(input)) return string.Empty;
+
+            // Replace symbols with words before cleaning
+            input = input
+                .Replace("%", " Percentage ")
+                .Replace("$", " Dollar ")
+                .Replace("&", " And ")
+                .Replace("+", " Plus ")
+                .Replace("#", " Number ");
 
             var cleaned = new string(input
                 .Where(c => char.IsLetterOrDigit(c) || c == ' ' || c == '_' || c == '-')
