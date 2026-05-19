@@ -26,6 +26,10 @@ namespace ISAS.Automation
             string outputFilePath,
             string dictionaryName = "excelData")
         {
+            // Always start fresh
+            if (File.Exists(outputFilePath))
+                File.Delete(outputFilePath);
+
             var lines = new List<string>();
 
             foreach (var metric in metrics)
