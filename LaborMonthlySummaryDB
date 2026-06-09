@@ -1,0 +1,69 @@
+using System;
+using System.Collections.Generic;
+using System.Data;
+using System.Data.SqlClient;
+using System.Linq;
+
+public static class DbQueryParser
+{
+    /// <summary>
+    /// Runs a SQL query and pivots the result into Dictionary&lt;metric, Dictionary&lt;month, value&gt;&gt;.
+    /// 
+    /// Usage:
+    ///   var dbColumns = ExcelParser.ToList("EmployedProductiveFtes, ContractFTEs, TotalProductiveFtes");
+    ///   var dbData = DbQueryParser.ExecuteAndPivot(connectionString, sqlQuery, dbColumns);
+    ///   double val = dbData["ContractFTEs"]["Feb"];  // 0
+    /// </summary>
+    public static Dictionary<string, Dictionary<string, double>> ExecuteAndPivot(
+        string connectionString,
+        string sqlQuery,
+        List<string> metricColumns,
+        string monthColumn = "MonthName")
+    {
+        var result = new Dictionary<string, Dictionary<string, double>>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var metric in metricColumns)
+            result[metric] = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+
+        using var conn = new SqlConnection(connectionString);
+        conn.Open();
+
+        using var cmd = new SqlCommand(sqlQuery, conn);
+        using var reader = cmd.ExecuteReader();
+
+        while (reader.Read())
+        {
+            string month = reader[monthColumn]?.ToString()?.Trim();
+            if (string.IsNullOrWhiteSpace(month)) continue;
+
+            foreach (var metric in metricColumns)
+            {
+                try
+                {
+                    var val = reader[metric];
+                    result[metric][month] = val == DBNull.Value ? 0.0 : Convert.ToDouble(val);
+                }
+                catch { result[metric][month] = 0.0; }
+            }
+        }
+
+        return result;
+    }
+}
+
+
+
+var connectionString = "Server=...;Database=...;Trusted_Connection=True;";
+var sql = "SELECT * FROM YourLaborSummaryQuery WHERE ...";
+
+var dbColumns = ExcelParser.ToList("EmployedProductiveFtes, ContractPercent, ContractFTEs, TotalProductiveFtes, NonProductivePercent, NonProductiveFtes, EmployedPaidFtes, TotalFtes");
+
+var dbData = DbQueryParser.ExecuteAndPivot(connectionString, sql, dbColumns);
+
+// Now access as: dbData["MetricName"]["MonthName"]
+double contractFtes_Feb = dbData["ContractFTEs"]["Feb"];           // 0
+double employedFtes_Jan = dbData["EmployedProductiveFtes"]["Jan"]; // 26343.89
+
+// Compare against Excel
+var results = ExcelParser.Compare(excelData, dbData, tolerance: 0.01);
+ExcelParser.PrintCompareResults(results);
