@@ -1,0 +1,186 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+
+namespace ISAS.Automation
+{
+    public static class CodeGenerator
+    {
+        /// <summary>
+        /// Generates variable assignment lines for either Excel or DB data.
+        /// Both produce the same variable names: FieldName_Month
+        /// 
+        /// Excel dict: excelData["Metric Name"]["Month"]  (metric is key1, month is key2)
+        /// DB dict:    dbData["Month"]["FieldName"]        (month is key1, field is key2)
+        /// 
+        /// Usage:
+        ///   CodeGenerator.GenerateVariables(fields, months, "excel_vars.txt", "excelData", "excel");
+        ///   CodeGenerator.GenerateVariables(fields, months, "db_vars.txt", "dbData", "db");
+        /// </summary>
+        public static void GenerateVariables(
+            List<string> fields,
+            List<string> months,
+            string outputFilePath,
+            string dictionaryName = "excelData",
+            string source = "excel")
+        {
+            if (File.Exists(outputFilePath))
+                File.Delete(outputFilePath);
+
+            var lines = new List<string>();
+
+            foreach (var field in fields)
+            {
+                string fieldVar = NormalizeKey(field);
+                lines.Add($"// {field}");
+
+                foreach (var month in months)
+                {
+                    string monthVar = NormalizeKey(month);
+                    string varName = $"{fieldVar}_{monthVar}";
+
+                    string access = source.ToLower() == "db"
+                        ? $"{dictionaryName}[\"{month}\"][\"{field}\"]"
+                        : $"{dictionaryName}[\"{field}\"][\"{month}\"]";
+
+                    lines.Add($"var {varName} = {access};");
+                }
+
+                lines.Add("");
+            }
+
+            File.WriteAllLines(outputFilePath, lines);
+            Console.WriteLine($"Generated {fields.Count * months.Count} variables -> {outputFilePath}");
+        }
+
+        /// <summary>
+        /// Generates a C# class with FieldName_Month properties.
+        /// Same class works for both Excel and DB data.
+        /// 
+        /// Usage:
+        ///   CodeGenerator.GenerateClass(fields, months, "LaborReport.cs", "LaborReport");
+        /// </summary>
+        public static void GenerateClass(
+            List<string> fields,
+            List<string> months,
+            string outputFilePath,
+            string className = "LaborReport",
+            string dataType = "double")
+        {
+            if (File.Exists(outputFilePath))
+                File.Delete(outputFilePath);
+
+            var lines = new List<string>();
+
+            lines.Add("namespace ISAS.Automation");
+            lines.Add("{");
+            lines.Add($"    public class {className}");
+            lines.Add("    {");
+
+            foreach (var field in fields)
+            {
+                string fieldVar = NormalizeKey(field);
+                lines.Add($"        // {field}");
+
+                foreach (var month in months)
+                {
+                    string monthVar = NormalizeKey(month);
+                    string propName = $"{fieldVar}_{monthVar}";
+                    lines.Add($"        public {dataType} {propName} {{ get; set; }}");
+                }
+
+                lines.Add("");
+            }
+
+            lines.Add("    }");
+            lines.Add("}");
+
+            File.WriteAllLines(outputFilePath, lines);
+            Console.WriteLine($"Generated class '{className}' with {fields.Count * months.Count} properties -> {outputFilePath}");
+        }
+
+        /// <summary>
+        /// Generates mapping code that populates the class from a dictionary.
+        /// Same class, different source.
+        /// 
+        /// Usage:
+        ///   CodeGenerator.GenerateMapper(fields, months, "excel_mapper.txt", "ExcelLaborReport", "excelData", "excel");
+        ///   CodeGenerator.GenerateMapper(fields, months, "db_mapper.txt", "DbLaborReport", "dbData", "db");
+        /// </summary>
+        public static void GenerateMapper(
+            List<string> fields,
+            List<string> months,
+            string outputFilePath,
+            string className = "LaborReport",
+            string dictionaryName = "excelData",
+            string source = "excel")
+        {
+            if (File.Exists(outputFilePath))
+                File.Delete(outputFilePath);
+
+            var lines = new List<string>();
+
+            lines.Add($"var report = new {className}();");
+            lines.Add("");
+
+            foreach (var field in fields)
+            {
+                string fieldVar = NormalizeKey(field);
+                lines.Add($"// {field}");
+
+                foreach (var month in months)
+                {
+                    string monthVar = NormalizeKey(month);
+                    string propName = $"{fieldVar}_{monthVar}";
+
+                    string access = source.ToLower() == "db"
+                        ? $"{dictionaryName}[\"{month}\"][\"{field}\"]"
+                        : $"{dictionaryName}[\"{field}\"][\"{month}\"]";
+
+                    lines.Add($"report.{propName} = Convert.ToDouble({access});");
+                }
+
+                lines.Add("");
+            }
+
+            File.WriteAllLines(outputFilePath, lines);
+            Console.WriteLine($"Generated mapper for '{className}' -> {outputFilePath}");
+        }
+
+        /// <summary>
+        /// Convert comma-delimited text file to a single comma-separated string.
+        /// </summary>
+        public static string FromFile(string filePath)
+        {
+            return string.Join(", ", File.ReadAllLines(filePath)
+                .Select(line => line.Trim())
+                .Where(line => !string.IsNullOrEmpty(line)));
+        }
+
+        /// <summary>
+        /// Normalize: "Employed (Productive) FTEs:" -> "EmployedProductiveFTEs"
+        /// </summary>
+        private static string NormalizeKey(string input)
+        {
+            if (string.IsNullOrWhiteSpace(input)) return string.Empty;
+
+            input = input
+                .Replace("%", " Percentage ")
+                .Replace("$", " Dollar ")
+                .Replace("&", " And ")
+                .Replace("+", " Plus ")
+                .Replace("#", " Number ");
+
+            var cleaned = new string(input
+                .Where(c => char.IsLetterOrDigit(c) || c == ' ' || c == '_' || c == '-')
+                .ToArray());
+
+            var parts = cleaned.Split(new[] { ' ', '_', '-' },
+                StringSplitOptions.RemoveEmptyEntries);
+
+            return string.Concat(parts.Select(p =>
+                char.ToUpperInvariant(p[0]) + (p.Length > 1 ? p.Substring(1) : "")));
+        }
+    }
+}
