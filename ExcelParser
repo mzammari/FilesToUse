@@ -19,6 +19,160 @@ namespace ISAS.Automation
     /// </summary>
     public class ExcelParser
     {
+        // Month names used to detect header rows
+        private static readonly HashSet<string> MonthNames = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Total"
+        };
+
+        /// <summary>
+        /// Auto-discover everything: finds header rows (the "blue" rows with Jan-Dec-Total),
+        /// extracts column names, and grabs all metric rows automatically.
+        /// No need to pass metrics or columns — it discovers them from the file.
+        /// 
+        /// Returns (columns, metrics, data):
+        ///   columns = List of column names found (e.g., Jan, Feb... Total)
+        ///   metrics = List of all metric names found
+        ///   data    = Dictionary&lt;metricName, Dictionary&lt;columnName, value&gt;&gt;
+        /// 
+        /// Usage:
+        ///   var (columns, metrics, data) = ExcelParser.AutoDiscover("Report.xls");
+        ///   double jan = data["Employed (Productive) FTEs:"]["Jan"];
+        /// </summary>
+        public static (List<string> Columns, List<string> Metrics, Dictionary<string, Dictionary<string, double>> Data)
+            AutoDiscover(string fileLocation, string sheetName = null)
+        {
+            var table = ExcelHeaderDiscovery.ReadSheet(fileLocation, sheetName);
+
+            // Step 1: Find all header rows (rows containing month names like Jan, Feb...)
+            var headerRows = new List<int>();
+            var discoveredColumns = new List<string>();
+
+            for (int row = 0; row < table.Rows.Count; row++)
+            {
+                int monthCount = 0;
+                for (int col = 0; col < table.Columns.Count; col++)
+                {
+                    string val = table.Rows[row][col]?.ToString()?.Trim();
+                    if (!string.IsNullOrEmpty(val) && MonthNames.Contains(val))
+                        monthCount++;
+                }
+
+                // A row with 3+ month names is a header row
+                if (monthCount >= 3)
+                {
+                    headerRows.Add(row);
+
+                    // Extract column names (only from the first header row to avoid duplicates)
+                    if (discoveredColumns.Count == 0)
+                    {
+                        for (int col = 0; col < table.Columns.Count; col++)
+                        {
+                            string val = table.Rows[row][col]?.ToString()?.Trim();
+                            if (!string.IsNullOrEmpty(val))
+                                discoveredColumns.Add(val);
+                        }
+                    }
+                }
+            }
+
+            if (headerRows.Count == 0)
+                throw new Exception("No header rows found. Expected rows containing Jan, Feb, Mar... Total.");
+
+            // Step 2: Find the key column (first column with metric names — typically col 0 or 1)
+            int keyCol = FindMetricKeyColumn(table, headerRows);
+
+            // Step 3: Map column names to their DataTable positions (from first header row)
+            var columnMap = new List<(string Name, int ColIndex)>();
+            int firstHeaderRow = headerRows[0];
+            for (int col = 0; col < table.Columns.Count; col++)
+            {
+                string val = table.Rows[firstHeaderRow][col]?.ToString()?.Trim();
+                if (!string.IsNullOrEmpty(val) && col != keyCol)
+                    columnMap.Add((val, col));
+            }
+
+            // Step 4: Extract all metric rows (rows between header rows that have data in the key column)
+            var headerRowSet = new HashSet<int>(headerRows);
+            var allMetrics = new List<string>();
+            var data = new Dictionary<string, Dictionary<string, double>>(StringComparer.OrdinalIgnoreCase);
+
+            for (int row = 0; row < table.Rows.Count; row++)
+            {
+                // Skip header rows themselves
+                if (headerRowSet.Contains(row))
+                    continue;
+
+                string metricName = table.Rows[row][keyCol]?.ToString()?.Trim();
+                if (string.IsNullOrWhiteSpace(metricName))
+                    continue;
+
+                // Skip section title rows (rows that appear right before a header row)
+                bool isSectionTitle = headerRowSet.Contains(row + 1) || headerRowSet.Contains(row + 2);
+                
+                // Also skip rows that have text only in the key column and nothing in data columns
+                bool hasData = false;
+                foreach (var (_, colIndex) in columnMap)
+                {
+                    var cellObj = table.Rows[row][colIndex];
+                    if (cellObj != null && cellObj != DBNull.Value && cellObj.ToString()?.Trim() != "")
+                    {
+                        hasData = true;
+                        break;
+                    }
+                }
+
+                if (!hasData)
+                    continue;
+
+                // This is a metric row — extract it
+                var rowData = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+                foreach (var (name, colIndex) in columnMap)
+                {
+                    object cellObj = table.Rows[row][colIndex];
+                    rowData[name] = ConvertToDouble(cellObj);
+                }
+
+                // Handle duplicate metric names across sections
+                string uniqueKey = metricName;
+                if (data.ContainsKey(uniqueKey))
+                {
+                    int suffix = 2;
+                    while (data.ContainsKey($"{metricName}_{suffix}"))
+                        suffix++;
+                    uniqueKey = $"{metricName}_{suffix}";
+                }
+
+                data[uniqueKey] = rowData;
+                allMetrics.Add(uniqueKey);
+            }
+
+            Console.WriteLine($"Auto-discovered: {discoveredColumns.Count} columns, {allMetrics.Count} metrics across {headerRows.Count} sections");
+
+            return (discoveredColumns, allMetrics, data);
+        }
+
+        /// <summary>
+        /// Find the column that contains metric names (first column with text in data rows).
+        /// </summary>
+        private static int FindMetricKeyColumn(DataTable table, List<int> headerRows)
+        {
+            foreach (int headerRow in headerRows)
+            {
+                for (int row = headerRow + 1; row < Math.Min(headerRow + 5, table.Rows.Count); row++)
+                {
+                    for (int col = 0; col < Math.Min(table.Columns.Count, 3); col++)
+                    {
+                        string val = table.Rows[row][col]?.ToString()?.Trim();
+                        if (!string.IsNullOrEmpty(val) && !MonthNames.Contains(val))
+                            return col;
+                    }
+                }
+            }
+            return 0;
+        }
+
         /// <summary>
         /// Parse Excel (.xls or .xlsx) into Dictionary&lt;metricName, Dictionary&lt;columnName, value&gt;&gt;.
         /// </summary>
@@ -79,6 +233,72 @@ namespace ISAS.Automation
 
             if (remaining.Count > 0)
                 Console.WriteLine($"Warning: Metrics not found: {string.Join(", ", remaining)}");
+
+            return result;
+        }
+
+        /// <summary>
+        /// Parse a DB query result file where months are rows and metrics are columns.
+        /// Returns Dictionary&lt;monthName, Dictionary&lt;fieldName, value&gt;&gt;.
+        /// 
+        /// DB result structure:
+        ///   MonthNum | MonthName | EmployedProductiveFtes | ContractPercent | ...
+        ///   1        | Jan       | 26343.89              | 0               | ...
+        ///   2        | Feb       | 29908.93              | 0               | ...
+        /// 
+        /// Usage:
+        ///   var fields = ExcelParser.ToList("EmployedProductiveFtes, ContractPercent, ContractFTEs");
+        ///   var dbData = ExcelParser.ParseDbResult("LaborMonthlySummary.xlsx", fields, "MonthName");
+        ///   double jan = dbData["Jan"]["EmployedProductiveFtes"];  // 26343.89
+        /// </summary>
+        public static Dictionary<string, Dictionary<string, double>> ParseDbResult(
+            string fileLocation,
+            List<string> fields,
+            string monthColumn = "MonthName",
+            string sheetName = null)
+        {
+            var table = ExcelHeaderDiscovery.ReadSheet(fileLocation, sheetName);
+            var headers = ExcelHeaderDiscovery.GetHeaders(table);
+            int headerRow = headers.Values.FirstOrDefault()?.HeaderRow ?? 0;
+
+            // Find the month column
+            var monthCol = headers.Values.FirstOrDefault(h =>
+                h.HeaderName.Equals(monthColumn, StringComparison.OrdinalIgnoreCase));
+
+            if (monthCol == null)
+                throw new KeyNotFoundException($"Month column '{monthColumn}' not found. " +
+                    $"Available: {string.Join(", ", headers.Values.Select(h => h.HeaderName))}");
+
+            // Map requested fields to their DataTable positions
+            var fieldMap = new List<(string Name, int ColIndex)>();
+            foreach (var field in fields)
+            {
+                var colInfo = headers.Values.FirstOrDefault(h =>
+                    h.HeaderName.Equals(field, StringComparison.OrdinalIgnoreCase));
+
+                if (colInfo != null)
+                    fieldMap.Add((field, colInfo.ColumnIndex));
+                else
+                    Console.WriteLine($"Warning: Field '{field}' not found in DB result.");
+            }
+
+            // Build result: month -> field -> value
+            var result = new Dictionary<string, Dictionary<string, double>>(StringComparer.OrdinalIgnoreCase);
+
+            for (int row = headerRow + 1; row < table.Rows.Count; row++)
+            {
+                string month = table.Rows[row][monthCol.ColumnIndex]?.ToString()?.Trim();
+                if (string.IsNullOrWhiteSpace(month)) continue;
+
+                var rowData = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+                foreach (var (name, colIndex) in fieldMap)
+                {
+                    object cellObj = table.Rows[row][colIndex];
+                    rowData[name] = ConvertToDouble(cellObj);
+                }
+
+                result[month] = rowData;
+            }
 
             return result;
         }
