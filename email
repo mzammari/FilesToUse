@@ -1,0 +1,11 @@
+Hi Vishal,
+
+Thanks for looping me in. A few initial thoughts, with the caveat that I haven't been close to this project so this is a read from the outside rather than a firm recommendation yet.
+
+The note leans toward starting from scratch since the framework never got past alpha. Before we default to a rewrite, I'd want to pressure-test that a little. "Stalled at alpha" usually means one of two very different things: it got deprioritized and the bones are fine, or the architecture was fighting the team (flaky waits, brittle locators, weak device handling) and a rewrite is the honest call. Those look the same from the outside but point to opposite decisions.
+
+Two things actually work in our favor here. It's built on Appium, which is cross-platform by design, so it's not locked to one OS the way an Espresso or XCUITest build would be — meaning reusability for your area comes down to code quality rather than platform fit. And the emulator + real-device infrastructure and the GitHub Actions pipeline are already in place. Wiring CI to real devices is the genuinely time-consuming part of mobile automation, so if that plumbing works, that's real preserved value regardless of what happens to the test code on top.
+
+My suggestion: rather than a blind keep-or-rebuild call, let me spend an hour or two looking at the repo — the CI workflow, the driver/capabilities layer, and a sample screen object. That's enough to tell us what's actually reusable and give you a keep/toss read with an effort estimate, instead of a coin flip.
+
+Happy to get started whenever you can point me to the repo or the report.
