@@ -1,0 +1,446 @@
+using System;
+using System.Collections.Generic;
+using System.Data;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Data.SqlClient;
+
+// ---------------------------------------------------------------------------
+// 1) Execute a stored procedure and return its first result set.
+// ---------------------------------------------------------------------------
+public sealed class StoredProcedureRunner
+{
+    // Point this at ISAS_WorkloadForecaster. Windows auth keeps a secret out of
+    // source; override at runtime with the ISAS_CONN environment variable.
+    private const string DefaultConnectionString =
+        "Server=YOUR_SERVER;Database=ISAS_WorkloadForecaster;Integrated Security=True;TrustServerCertificate=True;";
+
+    private readonly string _connectionString;
+
+    /// <summary>Uses the ISAS_CONN environment variable, or the built-in default.</summary>
+    public StoredProcedureRunner()
+        : this(Environment.GetEnvironmentVariable("ISAS_CONN") ?? DefaultConnectionString) { }
+
+    /// <summary>Explicit connection string — handy for tests or DI.</summary>
+    public StoredProcedureRunner(string connectionString)
+        => _connectionString = connectionString
+            ?? throw new ArgumentNullException(nameof(connectionString));
+
+    /// <summary>
+    /// Executes a stored procedure and loads the first result set into a DataTable.
+    /// Parameters are passed as name/value pairs; a leading '@' is optional.
+    /// </summary>
+    public async Task<DataTable> ExecuteAsync(
+        string procedureName,
+        IReadOnlyDictionary<string, object?>? parameters = null,
+        int commandTimeoutSeconds = 60,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(procedureName);
+
+        await using var connection = new SqlConnection(_connectionString);
+        await using var command = new SqlCommand(procedureName, connection)
+        {
+            CommandType = CommandType.StoredProcedure,
+            CommandTimeout = commandTimeoutSeconds
+        };
+
+        if (parameters is not null)
+        {
+            foreach (var (name, value) in parameters)
+            {
+                // AddWithValue is fine for a quick util. If you hit type-inference
+                // issues (money vs decimal, date vs datetime2), switch to
+                // command.Parameters.Add(new SqlParameter { ... }) with explicit SqlDbType.
+                command.Parameters.AddWithValue(
+                    name.StartsWith('@') ? name : "@" + name,
+                    value ?? DBNull.Value);
+            }
+        }
+
+        await connection.OpenAsync(cancellationToken);
+
+        var table = new DataTable();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        table.Load(reader);
+        return table;
+    }
+
+    /// <summary>
+    /// Reads the first data row into a case-insensitive column =&gt; value map.
+    /// Values are converted to double and rounded to 5 decimal places.
+    /// </summary>
+    public static IReadOnlyDictionary<string, double?> ReadMetricRow(DataTable table)
+    {
+        var map = new Dictionary<string, double?>(StringComparer.OrdinalIgnoreCase);
+        if (table.Rows.Count == 0) return map;
+
+        var row = table.Rows[0];
+        foreach (DataColumn col in table.Columns)
+        {
+            var raw = row[col];
+            map[col.ColumnName] = raw is null or DBNull
+                ? (double?)null
+                : Math.Round(Convert.ToDouble(raw), 5, MidpointRounding.AwayFromZero);
+        }
+        return map;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 2) Every column, as a constant. Single source of truth — no magic strings.
+//    All 80 columns from the result set are listed here.
+// ---------------------------------------------------------------------------
+public static class MetricColumns
+{
+    // ---- Current period ("*Total") ----------------------------------------
+    public const string EmployedProductiveFtesTotal   = "EmployedProductiveFtesTotal";
+    public const string ContractPercentTotal          = "ContractPercentTotal";
+    public const string ContractFtesTotal             = "ContractFtesTotal";
+    public const string TotalProductiveFtesTotal      = "TotalProductiveFtesTotal";
+    public const string NonProductivePercentTotal     = "NonProductivePercentTotal";
+    public const string NonProductiveFtesTotal        = "NonProductiveFtesTotal";
+    public const string EmployedPaidFtesTotal         = "EmployedPaidFtesTotal";
+    public const string TotalFtesTotal                = "TotalFtesTotal";
+    public const string TotalSalariesAndWagesTotal    = "TotalSalariesAndWagesTotal";
+    public const string TotalContractLaborDollarsTotal= "TotalContractLaborDollarsTotal";
+    public const string TotalLaborExpenseTotal        = "TotalLaborExpenseTotal";
+    public const string EmployedLaborRateTotal        = "EmployedLaborRateTotal";
+    public const string ContractLaborRateTotal        = "ContractLaborRateTotal";
+    public const string OverTimePremiumDollarsTotal   = "OverTimePremiumDollarsTotal";
+    public const string OtPercentTotal                = "OtPercentTotal";
+    public const string OTFTEsTotal                   = "OTFTEsTotal";
+    public const string Admissions                    = "Admissions";
+    public const string AAdmissions                   = "AAdmissions";
+    public const string PatientDays                   = "PatientDays";
+    public const string APatientDays                  = "APatientDays";
+    public const string ERVisits                      = "ERVisits";
+    public const string Outpatient                    = "Outpatient";
+    public const string OpFactor                      = "OpFactor";
+    public const string ALOS                          = "ALOS";
+    public const string EeobTotal                     = "EeobTotal";
+    public const string MhAaTotal                     = "MhAaTotal";
+    public const string OPFactorTotal                 = "OPFactorTotal"; // alt of OpFactor
+    public const string ALOSTotal                     = "ALOSTotal";     // alt of ALOS
+
+    // ---- Facility ---------------------------------------------------------
+    public const string FacilityEmployedProductiveFTEs       = "FacilityEmployedProductiveFTEs";
+    public const string FacilityContractLaborPercent         = "FacilityContractLaborPercent";
+    public const string FacilityContractFTEs                 = "FacilityContractFTEs";
+    public const string FacilityTotalProductiveFTEs          = "FacilityTotalProductiveFTEs";
+    public const string FacilityEmployedNonProductivePercent = "FacilityEmployedNonProductivePercent";
+    public const string FacilityNonProductiveFTEs            = "FacilityNonProductiveFTEs";
+    public const string FacilityEmployedPaidFTEs             = "FacilityEmployedPaidFTEs";
+    public const string FacilityTotalFTEsPaidContract        = "FacilityTotalFTEsPaidContract";
+    public const string FacilityTotalSalariesWages           = "FacilityTotalSalariesWages";
+    public const string FacilityTotalContractLabor           = "FacilityTotalContractLabor";
+    public const string FacilityTotalLaborExpense            = "FacilityTotalLaborExpense";
+    public const string FacilityEmployedLaborRate            = "FacilityEmployedLaborRate";
+    public const string FacilityContractLaborRate            = "FacilityContractLaborRate";
+    public const string FacilityOvertimePremiumDollars       = "FacilityOvertimePremiumDollars";
+    public const string FacilityOvertimePercent              = "FacilityOvertimePercent";
+    public const string FacilityOvertimeFTEs                 = "FacilityOvertimeFTEs";
+    public const string FacilityAdmissions                   = "FacilityAdmissions";
+    public const string FacilityAdjustedAdmissions           = "FacilityAdjustedAdmissions";
+    public const string FacilityPatientDays                  = "FacilityPatientDays";
+    public const string FacilityAPD                          = "FacilityAPD";
+    public const string FacilityERVisits                     = "FacilityERVisits";
+    public const string FacilityOutpatientVisits             = "FacilityOutpatientVisits";
+    public const string FacilityOPFactor                     = "FacilityOPFactor";
+    public const string FacilityALOS                         = "FacilityALOS";
+
+    // ---- Budget goals -----------------------------------------------------
+    public const string BudgetGoalEeob = "BudgetGoalEeob";
+    public const string BudgetGoalMh   = "BudgetGoalMh";
+
+    // ---- Prior period -----------------------------------------------------
+    public const string PriorEmployedProductiveFTEs       = "PriorEmployedProductiveFTEs";
+    public const string PriorContractLaborPercent         = "PriorContractLaborPercent";
+    public const string PriorContractFTEs                 = "PriorContractFTEs";
+    public const string PriorTotalProductiveFTEs          = "PriorTotalProductiveFTEs";
+    public const string PriorEmployedNonProductivePercent = "PriorEmployedNonProductivePercent";
+    public const string PriorNonProductiveFTEs            = "PriorNonProductiveFTEs";
+    public const string PriorEmployedPaidFTEs             = "PriorEmployedPaidFTEs";
+    public const string PriorTotalFTEsPaidContract        = "PriorTotalFTEsPaidContract";
+    public const string PriorTotalSalariesWages           = "PriorTotalSalariesWages";
+    public const string PriorTotalContractLabor           = "PriorTotalContractLabor";
+    public const string PriorTotalLaborExpense            = "PriorTotalLaborExpense";
+    public const string PriorEmployedLaborRate            = "PriorEmployedLaborRate";
+    public const string PriorContractLaborRate            = "PriorContractLaborRate";
+    public const string PriorOvertimePremiumDollars       = "PriorOvertimePremiumDollars";
+    public const string PriorOvertimePercent              = "PriorOvertimePercent";
+    public const string PriorOvertimeFTEs                 = "PriorOvertimeFTEs";
+    public const string PriorAdmissions                   = "PriorAdmissions";
+    public const string PriorAdjustedAdmissions           = "PriorAdjustedAdmissions";
+    public const string PriorPatientDays                  = "PriorPatientDays";
+    public const string PriorAPD                          = "PriorAPD";
+    public const string PriorERVisits                     = "PriorERVisits";
+    public const string PriorOutpatientVisits             = "PriorOutpatientVisits";
+    public const string PriorOPFactor                     = "PriorOPFactor";
+    public const string PriorALOS                         = "PriorALOS";
+    public const string PriorMHAA                         = "PriorMHAA";
+    public const string PrioEeob                          = "PrioEeob"; // note: source spelling
+
+    /// <summary>All 80 result-set columns.</summary>
+    public static readonly IReadOnlyList<string> All = new[]
+    {
+        EmployedProductiveFtesTotal, ContractPercentTotal, ContractFtesTotal, TotalProductiveFtesTotal,
+        NonProductivePercentTotal, NonProductiveFtesTotal, EmployedPaidFtesTotal, TotalFtesTotal,
+        TotalSalariesAndWagesTotal, TotalContractLaborDollarsTotal, TotalLaborExpenseTotal, EmployedLaborRateTotal,
+        ContractLaborRateTotal, OverTimePremiumDollarsTotal, OtPercentTotal, OTFTEsTotal,
+        Admissions, AAdmissions, PatientDays, APatientDays, ERVisits, Outpatient, OpFactor, ALOS,
+        EeobTotal, MhAaTotal, OPFactorTotal, ALOSTotal,
+        FacilityEmployedProductiveFTEs, FacilityContractLaborPercent, FacilityContractFTEs, FacilityTotalProductiveFTEs,
+        FacilityEmployedNonProductivePercent, FacilityNonProductiveFTEs, FacilityEmployedPaidFTEs, FacilityTotalFTEsPaidContract,
+        FacilityTotalSalariesWages, FacilityTotalContractLabor, FacilityTotalLaborExpense, FacilityEmployedLaborRate,
+        FacilityContractLaborRate, FacilityOvertimePremiumDollars, FacilityOvertimePercent, FacilityOvertimeFTEs,
+        FacilityAdmissions, FacilityAdjustedAdmissions, FacilityPatientDays, FacilityAPD,
+        FacilityERVisits, FacilityOutpatientVisits, FacilityOPFactor, FacilityALOS,
+        BudgetGoalEeob, BudgetGoalMh,
+        PriorEmployedProductiveFTEs, PriorContractLaborPercent, PriorContractFTEs, PriorTotalProductiveFTEs,
+        PriorEmployedNonProductivePercent, PriorNonProductiveFTEs, PriorEmployedPaidFTEs, PriorTotalFTEsPaidContract,
+        PriorTotalSalariesWages, PriorTotalContractLabor, PriorTotalLaborExpense, PriorEmployedLaborRate,
+        PriorContractLaborRate, PriorOvertimePremiumDollars, PriorOvertimePercent, PriorOvertimeFTEs,
+        PriorAdmissions, PriorAdjustedAdmissions, PriorPatientDays, PriorAPD, PriorERVisits, PriorOutpatientVisits,
+        PriorOPFactor, PriorALOS, PriorMHAA, PrioEeob
+    };
+}
+
+// ---------------------------------------------------------------------------
+// 3) Assign an outcome for each metric.
+// ---------------------------------------------------------------------------
+public enum MetricOutcome
+{
+    Favorable,      // moved in the good direction beyond the neutral band
+    Unfavorable,    // moved in the bad direction beyond the neutral band
+    OnTarget,       // within the neutral band of the baseline
+    Informational,  // a driver/volume metric — reported, not graded
+    NoData          // value or baseline missing / baseline is zero
+}
+
+public enum MetricPolarity
+{
+    LowerIsBetter,
+    HigherIsBetter,
+    Informational
+}
+
+/// <summary>Which dimension the current value is graded against.</summary>
+public enum BaselineDimension
+{
+    Prior,
+    Facility,
+    Budget
+}
+
+/// <summary>
+/// A logical metric and every column that carries it across the four dimensions.
+/// CurrentAltKey holds a duplicate current-period column when the SP emits one
+/// (e.g. OpFactor + OPFactorTotal, ALOS + ALOSTotal).
+/// </summary>
+public sealed record MetricFamily(
+    string DisplayName,
+    MetricPolarity Polarity,
+    string CurrentKey,
+    string? FacilityKey = null,
+    string? PriorKey = null,
+    string? BudgetKey = null,
+    string? CurrentAltKey = null,
+    BaselineDimension DefaultBaseline = BaselineDimension.Prior)
+{
+    public IEnumerable<string> AllKeys()
+    {
+        yield return CurrentKey;
+        if (CurrentAltKey is not null) yield return CurrentAltKey;
+        if (FacilityKey is not null) yield return FacilityKey;
+        if (PriorKey is not null) yield return PriorKey;
+        if (BudgetKey is not null) yield return BudgetKey;
+    }
+
+    public string? BaselineKey(BaselineDimension dim) => dim switch
+    {
+        BaselineDimension.Prior    => PriorKey,
+        BaselineDimension.Facility => FacilityKey,
+        BaselineDimension.Budget   => BudgetKey,
+        _ => null
+    };
+}
+
+public sealed record MetricResult(
+    string DisplayName,
+    double? CurrentValue,
+    double? FacilityValue,
+    double? PriorValue,
+    double? BudgetValue,
+    BaselineDimension BaselineUsed,
+    double? BaselineValue,
+    double? VariancePercent,
+    MetricOutcome Outcome);
+
+// ---------------------------------------------------------------------------
+// 4) Registry: 26 logical metrics covering all 80 columns.
+// ---------------------------------------------------------------------------
+public static class MetricFamilyRegistry
+{
+    public static readonly IReadOnlyList<MetricFamily> Families = new[]
+    {
+        // ---- Labor mix / cost (lower is better) -----------------------------
+        new MetricFamily("Employed Productive FTEs", MetricPolarity.Informational,
+            MetricColumns.EmployedProductiveFtesTotal, MetricColumns.FacilityEmployedProductiveFTEs, MetricColumns.PriorEmployedProductiveFTEs),
+        new MetricFamily("Contract Labor %", MetricPolarity.LowerIsBetter,
+            MetricColumns.ContractPercentTotal, MetricColumns.FacilityContractLaborPercent, MetricColumns.PriorContractLaborPercent),
+        new MetricFamily("Contract FTEs", MetricPolarity.LowerIsBetter,
+            MetricColumns.ContractFtesTotal, MetricColumns.FacilityContractFTEs, MetricColumns.PriorContractFTEs),
+        new MetricFamily("Total Productive FTEs", MetricPolarity.Informational,
+            MetricColumns.TotalProductiveFtesTotal, MetricColumns.FacilityTotalProductiveFTEs, MetricColumns.PriorTotalProductiveFTEs),
+        new MetricFamily("Non-Productive %", MetricPolarity.LowerIsBetter,
+            MetricColumns.NonProductivePercentTotal, MetricColumns.FacilityEmployedNonProductivePercent, MetricColumns.PriorEmployedNonProductivePercent),
+        new MetricFamily("Non-Productive FTEs", MetricPolarity.LowerIsBetter,
+            MetricColumns.NonProductiveFtesTotal, MetricColumns.FacilityNonProductiveFTEs, MetricColumns.PriorNonProductiveFTEs),
+        new MetricFamily("Employed Paid FTEs", MetricPolarity.Informational,
+            MetricColumns.EmployedPaidFtesTotal, MetricColumns.FacilityEmployedPaidFTEs, MetricColumns.PriorEmployedPaidFTEs),
+        new MetricFamily("Total FTEs (Paid+Contract)", MetricPolarity.Informational,
+            MetricColumns.TotalFtesTotal, MetricColumns.FacilityTotalFTEsPaidContract, MetricColumns.PriorTotalFTEsPaidContract),
+        new MetricFamily("Total Salaries & Wages", MetricPolarity.LowerIsBetter,
+            MetricColumns.TotalSalariesAndWagesTotal, MetricColumns.FacilityTotalSalariesWages, MetricColumns.PriorTotalSalariesWages),
+        new MetricFamily("Total Contract Labor $", MetricPolarity.LowerIsBetter,
+            MetricColumns.TotalContractLaborDollarsTotal, MetricColumns.FacilityTotalContractLabor, MetricColumns.PriorTotalContractLabor),
+        new MetricFamily("Total Labor Expense", MetricPolarity.LowerIsBetter,
+            MetricColumns.TotalLaborExpenseTotal, MetricColumns.FacilityTotalLaborExpense, MetricColumns.PriorTotalLaborExpense),
+        new MetricFamily("Employed Labor Rate", MetricPolarity.LowerIsBetter,
+            MetricColumns.EmployedLaborRateTotal, MetricColumns.FacilityEmployedLaborRate, MetricColumns.PriorEmployedLaborRate),
+        new MetricFamily("Contract Labor Rate", MetricPolarity.LowerIsBetter,
+            MetricColumns.ContractLaborRateTotal, MetricColumns.FacilityContractLaborRate, MetricColumns.PriorContractLaborRate),
+
+        // ---- Overtime (lower is better) -------------------------------------
+        new MetricFamily("OT Premium $", MetricPolarity.LowerIsBetter,
+            MetricColumns.OverTimePremiumDollarsTotal, MetricColumns.FacilityOvertimePremiumDollars, MetricColumns.PriorOvertimePremiumDollars),
+        new MetricFamily("OT %", MetricPolarity.LowerIsBetter,
+            MetricColumns.OtPercentTotal, MetricColumns.FacilityOvertimePercent, MetricColumns.PriorOvertimePercent),
+        new MetricFamily("OT FTEs", MetricPolarity.LowerIsBetter,
+            MetricColumns.OTFTEsTotal, MetricColumns.FacilityOvertimeFTEs, MetricColumns.PriorOvertimeFTEs),
+
+        // ---- Volume drivers (reported, not graded) --------------------------
+        new MetricFamily("Admissions", MetricPolarity.Informational,
+            MetricColumns.Admissions, MetricColumns.FacilityAdmissions, MetricColumns.PriorAdmissions),
+        new MetricFamily("Adjusted Admissions", MetricPolarity.Informational,
+            MetricColumns.AAdmissions, MetricColumns.FacilityAdjustedAdmissions, MetricColumns.PriorAdjustedAdmissions),
+        new MetricFamily("Patient Days", MetricPolarity.Informational,
+            MetricColumns.PatientDays, MetricColumns.FacilityPatientDays, MetricColumns.PriorPatientDays),
+        new MetricFamily("Adjusted Patient Days", MetricPolarity.Informational,
+            MetricColumns.APatientDays, MetricColumns.FacilityAPD, MetricColumns.PriorAPD),
+        new MetricFamily("ER Visits", MetricPolarity.Informational,
+            MetricColumns.ERVisits, MetricColumns.FacilityERVisits, MetricColumns.PriorERVisits),
+        new MetricFamily("Outpatient Visits", MetricPolarity.Informational,
+            MetricColumns.Outpatient, MetricColumns.FacilityOutpatientVisits, MetricColumns.PriorOutpatientVisits),
+        new MetricFamily("Outpatient Factor", MetricPolarity.Informational,
+            MetricColumns.OpFactor, MetricColumns.FacilityOPFactor, MetricColumns.PriorOPFactor,
+            CurrentAltKey: MetricColumns.OPFactorTotal),
+        new MetricFamily("Avg Length of Stay", MetricPolarity.Informational,
+            MetricColumns.ALOS, MetricColumns.FacilityALOS, MetricColumns.PriorALOS,
+            CurrentAltKey: MetricColumns.ALOSTotal),
+
+        // ---- Flagship productivity KPIs, graded vs. budget ------------------
+        new MetricFamily("EEOB", MetricPolarity.LowerIsBetter,
+            MetricColumns.EeobTotal, FacilityKey: null, PriorKey: MetricColumns.PrioEeob,
+            BudgetKey: MetricColumns.BudgetGoalEeob, DefaultBaseline: BaselineDimension.Budget),
+        new MetricFamily("MH/AA", MetricPolarity.LowerIsBetter,
+            MetricColumns.MhAaTotal, FacilityKey: null, PriorKey: MetricColumns.PriorMHAA,
+            BudgetKey: MetricColumns.BudgetGoalMh, DefaultBaseline: BaselineDimension.Budget),
+    };
+
+    /// <summary>Columns in MetricColumns.All that no family references. Should be empty.</summary>
+    public static IReadOnlyList<string> UnmappedColumns()
+    {
+        var referenced = new HashSet<string>(
+            Families.SelectMany(f => f.AllKeys()), StringComparer.OrdinalIgnoreCase);
+        return MetricColumns.All.Where(c => !referenced.Contains(c)).ToList();
+    }
+
+    /// <summary>Keys referenced by a family that are missing from MetricColumns.All. Guards typos.</summary>
+    public static IReadOnlyList<string> DanglingReferences()
+    {
+        var known = new HashSet<string>(MetricColumns.All, StringComparer.OrdinalIgnoreCase);
+        return Families.SelectMany(f => f.AllKeys())
+                       .Where(k => !known.Contains(k))
+                       .Distinct(StringComparer.OrdinalIgnoreCase)
+                       .ToList();
+    }
+}
+
+public static class MetricEvaluator
+{
+    /// <summary>
+    /// Grades one family. Within +/- neutralBandPercent of the baseline is OnTarget;
+    /// beyond that, direction + polarity decide Favorable vs. Unfavorable.
+    /// Pass overrideBaseline to force a dimension (e.g. grade everything vs. Facility).
+    /// </summary>
+    public static MetricResult Evaluate(
+        MetricFamily family,
+        IReadOnlyDictionary<string, double?> row,
+        double neutralBandPercent = 1.0,
+        BaselineDimension? overrideBaseline = null)
+    {
+        double? Get(string? key) => key is not null && row.TryGetValue(key, out var v) ? v : null;
+
+        var current  = Get(family.CurrentKey) ?? Get(family.CurrentAltKey);
+        var facility = Get(family.FacilityKey);
+        var prior    = Get(family.PriorKey);
+        var budget   = Get(family.BudgetKey);
+
+        var dim = overrideBaseline ?? family.DefaultBaseline;
+        var baseline = Get(family.BaselineKey(dim));
+
+        if (current is null || baseline is null || baseline.Value == 0.0)
+            return new MetricResult(family.DisplayName, current, facility, prior, budget,
+                dim, baseline, null, MetricOutcome.NoData);
+
+        var variancePct = (current.Value - baseline.Value) / Math.Abs(baseline.Value) * 100.0;
+        var rounded = Math.Round(variancePct, 5, MidpointRounding.AwayFromZero);
+
+        MetricOutcome outcome;
+        if (family.Polarity == MetricPolarity.Informational)
+            outcome = MetricOutcome.Informational;
+        else if (Math.Abs(variancePct) <= neutralBandPercent)
+            outcome = MetricOutcome.OnTarget;
+        else
+        {
+            var improved = family.Polarity == MetricPolarity.LowerIsBetter
+                ? variancePct < 0
+                : variancePct > 0;
+            outcome = improved ? MetricOutcome.Favorable : MetricOutcome.Unfavorable;
+        }
+
+        return new MetricResult(family.DisplayName, current, facility, prior, budget,
+            dim, baseline, rounded, outcome);
+    }
+
+    /// <summary>Grades every registered family against a single result row.</summary>
+    public static IReadOnlyList<MetricResult> EvaluateAll(
+        IReadOnlyDictionary<string, double?> row,
+        double neutralBandPercent = 1.0,
+        BaselineDimension? overrideBaseline = null)
+        => MetricFamilyRegistry.Families
+            .Select(f => Evaluate(f, row, neutralBandPercent, overrideBaseline))
+            .ToList();
+}
+
+// ---------------------------------------------------------------------------
+// Example usage
+// ---------------------------------------------------------------------------
+// // Optional guard in a unit test — both must be empty:
+// Assert.Empty(MetricFamilyRegistry.UnmappedColumns());
+// Assert.Empty(MetricFamilyRegistry.DanglingReferences());
+//
+// var runner   = new StoredProcedureRunner();  // connection string from ISAS_CONN / default
+// var table    = await runner.ExecuteAsync("dbo.usp_GetLaborProductivity", cancellationToken: ct);
+// var row      = StoredProcedureRunner.ReadMetricRow(table);
+//
+// var outcomes = MetricEvaluator.EvaluateAll(row, neutralBandPercent: 1.0);
+// // grade the whole set against facility instead:
+// // var vsFacility = MetricEvaluator.EvaluateAll(row, overrideBaseline: BaselineDimension.Facility);
+//
+// foreach (var m in outcomes)
+//     Console.WriteLine($"{m.DisplayName,-28} {m.CurrentValue,12:N5}  vs[{m.BaselineUsed}] " +
+//                       $"{m.BaselineValue,12:N5}  {m.VariancePercent,9:N5}%  {m.Outcome}");
