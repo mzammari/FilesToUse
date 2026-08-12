@@ -449,11 +449,14 @@ public static class MetricEvaluator
 
 
 
+long planId = 12345L;   // set this to the real plan id
+
 var runner = new StoredProcedureRunner();
-LaborMetricRow row = await runner.GetLaborMetricRowAsync("dbo.usp_YourProcName");
+LaborMetricRow row = await runner.GetLaborMetricRowAsync(
+    "dbo.usp_YourProcName",
+    new Dictionary<string, object?> { ["PlanID"] = planId });
 
 IReadOnlyList<MetricResult> outcomes = MetricEvaluator.EvaluateAll(row.ToMetricMap());
-
 foreach (var m in outcomes)
     Console.WriteLine($"{m.DisplayName,-28} {m.CurrentValue,12:N5}  " +
                       $"vs[{m.BaselineUsed}] {m.BaselineValue,12:N5}  {m.Outcome}");
