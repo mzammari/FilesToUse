@@ -1,0 +1,311 @@
+using System;
+using System.Collections.Generic;
+using System.Data;
+
+namespace HealthTrust.LaborMetrics;
+
+/// <summary>
+/// Strongly-typed row for the labor productivity result set — one property per
+/// DB column (all 80). Numeric values are stored as double, rounded to 5 decimals.
+/// </summary>
+public sealed class LaborMetricRow
+{
+    // ---- Current period ("*Total") ----
+    public double? EmployedProductiveFtesTotal { get; set; }
+    public double? ContractPercentTotal { get; set; }
+    public double? ContractFtesTotal { get; set; }
+    public double? TotalProductiveFtesTotal { get; set; }
+    public double? NonProductivePercentTotal { get; set; }
+    public double? NonProductiveFtesTotal { get; set; }
+    public double? EmployedPaidFtesTotal { get; set; }
+    public double? TotalFtesTotal { get; set; }
+    public double? TotalSalariesAndWagesTotal { get; set; }
+    public double? TotalContractLaborDollarsTotal { get; set; }
+    public double? TotalLaborExpenseTotal { get; set; }
+    public double? EmployedLaborRateTotal { get; set; }
+    public double? ContractLaborRateTotal { get; set; }
+    public double? OverTimePremiumDollarsTotal { get; set; }
+    public double? OtPercentTotal { get; set; }
+    public double? OTFTEsTotal { get; set; }
+    public double? Admissions { get; set; }
+    public double? AAdmissions { get; set; }
+    public double? PatientDays { get; set; }
+    public double? APatientDays { get; set; }
+    public double? ERVisits { get; set; }
+    public double? Outpatient { get; set; }
+    public double? OpFactor { get; set; }
+    public double? ALOS { get; set; }
+    public double? EeobTotal { get; set; }
+    public double? MhAaTotal { get; set; }
+    public double? OPFactorTotal { get; set; }
+    public double? ALOSTotal { get; set; }
+
+    // ---- Facility ----
+    public double? FacilityEmployedProductiveFTEs { get; set; }
+    public double? FacilityContractLaborPercent { get; set; }
+    public double? FacilityContractFTEs { get; set; }
+    public double? FacilityTotalProductiveFTEs { get; set; }
+    public double? FacilityEmployedNonProductivePercent { get; set; }
+    public double? FacilityNonProductiveFTEs { get; set; }
+    public double? FacilityEmployedPaidFTEs { get; set; }
+    public double? FacilityTotalFTEsPaidContract { get; set; }
+    public double? FacilityTotalSalariesWages { get; set; }
+    public double? FacilityTotalContractLabor { get; set; }
+    public double? FacilityTotalLaborExpense { get; set; }
+    public double? FacilityEmployedLaborRate { get; set; }
+    public double? FacilityContractLaborRate { get; set; }
+    public double? FacilityOvertimePremiumDollars { get; set; }
+    public double? FacilityOvertimePercent { get; set; }
+    public double? FacilityOvertimeFTEs { get; set; }
+    public double? FacilityAdmissions { get; set; }
+    public double? FacilityAdjustedAdmissions { get; set; }
+    public double? FacilityPatientDays { get; set; }
+    public double? FacilityAPD { get; set; }
+    public double? FacilityERVisits { get; set; }
+    public double? FacilityOutpatientVisits { get; set; }
+    public double? FacilityOPFactor { get; set; }
+    public double? FacilityALOS { get; set; }
+
+    // ---- Budget goals ----
+    public double? BudgetGoalEeob { get; set; }
+    public double? BudgetGoalMh { get; set; }
+
+    // ---- Prior period ----
+    public double? PriorEmployedProductiveFTEs { get; set; }
+    public double? PriorContractLaborPercent { get; set; }
+    public double? PriorContractFTEs { get; set; }
+    public double? PriorTotalProductiveFTEs { get; set; }
+    public double? PriorEmployedNonProductivePercent { get; set; }
+    public double? PriorNonProductiveFTEs { get; set; }
+    public double? PriorEmployedPaidFTEs { get; set; }
+    public double? PriorTotalFTEsPaidContract { get; set; }
+    public double? PriorTotalSalariesWages { get; set; }
+    public double? PriorTotalContractLabor { get; set; }
+    public double? PriorTotalLaborExpense { get; set; }
+    public double? PriorEmployedLaborRate { get; set; }
+    public double? PriorContractLaborRate { get; set; }
+    public double? PriorOvertimePremiumDollars { get; set; }
+    public double? PriorOvertimePercent { get; set; }
+    public double? PriorOvertimeFTEs { get; set; }
+    public double? PriorAdmissions { get; set; }
+    public double? PriorAdjustedAdmissions { get; set; }
+    public double? PriorPatientDays { get; set; }
+    public double? PriorAPD { get; set; }
+    public double? PriorERVisits { get; set; }
+    public double? PriorOutpatientVisits { get; set; }
+    public double? PriorOPFactor { get; set; }
+    public double? PriorALOS { get; set; }
+    public double? PriorMHAA { get; set; }
+    public double? PrioEeob { get; set; }
+
+    // -----------------------------------------------------------------------
+    // Mapping: assign each column value to its property and return the object.
+    // -----------------------------------------------------------------------
+
+    /// <summary>Maps the first row of a result set. Returns null if there are no rows.</summary>
+    public static LaborMetricRow? FromDataTable(DataTable table)
+        => table.Rows.Count == 0 ? null : FromDataRow(table.Rows[0]);
+
+    /// <summary>Maps every row of a result set (e.g. one row per department/facility).</summary>
+    public static IReadOnlyList<LaborMetricRow> FromDataTableAll(DataTable table)
+    {
+        var list = new List<LaborMetricRow>(table.Rows.Count);
+        foreach (DataRow row in table.Rows)
+            list.Add(FromDataRow(row));
+        return list;
+    }
+
+    /// <summary>Maps a single DataRow into a populated LaborMetricRow.</summary>
+    public static LaborMetricRow FromDataRow(DataRow row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+
+        return new LaborMetricRow
+        {
+            EmployedProductiveFtesTotal = D(row, MetricColumns.EmployedProductiveFtesTotal),
+            ContractPercentTotal = D(row, MetricColumns.ContractPercentTotal),
+            ContractFtesTotal = D(row, MetricColumns.ContractFtesTotal),
+            TotalProductiveFtesTotal = D(row, MetricColumns.TotalProductiveFtesTotal),
+            NonProductivePercentTotal = D(row, MetricColumns.NonProductivePercentTotal),
+            NonProductiveFtesTotal = D(row, MetricColumns.NonProductiveFtesTotal),
+            EmployedPaidFtesTotal = D(row, MetricColumns.EmployedPaidFtesTotal),
+            TotalFtesTotal = D(row, MetricColumns.TotalFtesTotal),
+            TotalSalariesAndWagesTotal = D(row, MetricColumns.TotalSalariesAndWagesTotal),
+            TotalContractLaborDollarsTotal = D(row, MetricColumns.TotalContractLaborDollarsTotal),
+            TotalLaborExpenseTotal = D(row, MetricColumns.TotalLaborExpenseTotal),
+            EmployedLaborRateTotal = D(row, MetricColumns.EmployedLaborRateTotal),
+            ContractLaborRateTotal = D(row, MetricColumns.ContractLaborRateTotal),
+            OverTimePremiumDollarsTotal = D(row, MetricColumns.OverTimePremiumDollarsTotal),
+            OtPercentTotal = D(row, MetricColumns.OtPercentTotal),
+            OTFTEsTotal = D(row, MetricColumns.OTFTEsTotal),
+            Admissions = D(row, MetricColumns.Admissions),
+            AAdmissions = D(row, MetricColumns.AAdmissions),
+            PatientDays = D(row, MetricColumns.PatientDays),
+            APatientDays = D(row, MetricColumns.APatientDays),
+            ERVisits = D(row, MetricColumns.ERVisits),
+            Outpatient = D(row, MetricColumns.Outpatient),
+            OpFactor = D(row, MetricColumns.OpFactor),
+            ALOS = D(row, MetricColumns.ALOS),
+            EeobTotal = D(row, MetricColumns.EeobTotal),
+            MhAaTotal = D(row, MetricColumns.MhAaTotal),
+            OPFactorTotal = D(row, MetricColumns.OPFactorTotal),
+            ALOSTotal = D(row, MetricColumns.ALOSTotal),
+            FacilityEmployedProductiveFTEs = D(row, MetricColumns.FacilityEmployedProductiveFTEs),
+            FacilityContractLaborPercent = D(row, MetricColumns.FacilityContractLaborPercent),
+            FacilityContractFTEs = D(row, MetricColumns.FacilityContractFTEs),
+            FacilityTotalProductiveFTEs = D(row, MetricColumns.FacilityTotalProductiveFTEs),
+            FacilityEmployedNonProductivePercent = D(row, MetricColumns.FacilityEmployedNonProductivePercent),
+            FacilityNonProductiveFTEs = D(row, MetricColumns.FacilityNonProductiveFTEs),
+            FacilityEmployedPaidFTEs = D(row, MetricColumns.FacilityEmployedPaidFTEs),
+            FacilityTotalFTEsPaidContract = D(row, MetricColumns.FacilityTotalFTEsPaidContract),
+            FacilityTotalSalariesWages = D(row, MetricColumns.FacilityTotalSalariesWages),
+            FacilityTotalContractLabor = D(row, MetricColumns.FacilityTotalContractLabor),
+            FacilityTotalLaborExpense = D(row, MetricColumns.FacilityTotalLaborExpense),
+            FacilityEmployedLaborRate = D(row, MetricColumns.FacilityEmployedLaborRate),
+            FacilityContractLaborRate = D(row, MetricColumns.FacilityContractLaborRate),
+            FacilityOvertimePremiumDollars = D(row, MetricColumns.FacilityOvertimePremiumDollars),
+            FacilityOvertimePercent = D(row, MetricColumns.FacilityOvertimePercent),
+            FacilityOvertimeFTEs = D(row, MetricColumns.FacilityOvertimeFTEs),
+            FacilityAdmissions = D(row, MetricColumns.FacilityAdmissions),
+            FacilityAdjustedAdmissions = D(row, MetricColumns.FacilityAdjustedAdmissions),
+            FacilityPatientDays = D(row, MetricColumns.FacilityPatientDays),
+            FacilityAPD = D(row, MetricColumns.FacilityAPD),
+            FacilityERVisits = D(row, MetricColumns.FacilityERVisits),
+            FacilityOutpatientVisits = D(row, MetricColumns.FacilityOutpatientVisits),
+            FacilityOPFactor = D(row, MetricColumns.FacilityOPFactor),
+            FacilityALOS = D(row, MetricColumns.FacilityALOS),
+            BudgetGoalEeob = D(row, MetricColumns.BudgetGoalEeob),
+            BudgetGoalMh = D(row, MetricColumns.BudgetGoalMh),
+            PriorEmployedProductiveFTEs = D(row, MetricColumns.PriorEmployedProductiveFTEs),
+            PriorContractLaborPercent = D(row, MetricColumns.PriorContractLaborPercent),
+            PriorContractFTEs = D(row, MetricColumns.PriorContractFTEs),
+            PriorTotalProductiveFTEs = D(row, MetricColumns.PriorTotalProductiveFTEs),
+            PriorEmployedNonProductivePercent = D(row, MetricColumns.PriorEmployedNonProductivePercent),
+            PriorNonProductiveFTEs = D(row, MetricColumns.PriorNonProductiveFTEs),
+            PriorEmployedPaidFTEs = D(row, MetricColumns.PriorEmployedPaidFTEs),
+            PriorTotalFTEsPaidContract = D(row, MetricColumns.PriorTotalFTEsPaidContract),
+            PriorTotalSalariesWages = D(row, MetricColumns.PriorTotalSalariesWages),
+            PriorTotalContractLabor = D(row, MetricColumns.PriorTotalContractLabor),
+            PriorTotalLaborExpense = D(row, MetricColumns.PriorTotalLaborExpense),
+            PriorEmployedLaborRate = D(row, MetricColumns.PriorEmployedLaborRate),
+            PriorContractLaborRate = D(row, MetricColumns.PriorContractLaborRate),
+            PriorOvertimePremiumDollars = D(row, MetricColumns.PriorOvertimePremiumDollars),
+            PriorOvertimePercent = D(row, MetricColumns.PriorOvertimePercent),
+            PriorOvertimeFTEs = D(row, MetricColumns.PriorOvertimeFTEs),
+            PriorAdmissions = D(row, MetricColumns.PriorAdmissions),
+            PriorAdjustedAdmissions = D(row, MetricColumns.PriorAdjustedAdmissions),
+            PriorPatientDays = D(row, MetricColumns.PriorPatientDays),
+            PriorAPD = D(row, MetricColumns.PriorAPD),
+            PriorERVisits = D(row, MetricColumns.PriorERVisits),
+            PriorOutpatientVisits = D(row, MetricColumns.PriorOutpatientVisits),
+            PriorOPFactor = D(row, MetricColumns.PriorOPFactor),
+            PriorALOS = D(row, MetricColumns.PriorALOS),
+            PriorMHAA = D(row, MetricColumns.PriorMHAA),
+            PrioEeob = D(row, MetricColumns.PrioEeob),
+        };
+    }
+
+    /// <summary>
+    /// Reads one column as double? — DBNull/missing column =&gt; null, otherwise
+    /// converted and rounded to 5 decimal places.
+    /// </summary>
+    private static double? D(DataRow row, string column)
+    {
+        if (!row.Table.Columns.Contains(column)) return null;
+        var raw = row[column];
+        return raw is null or DBNull
+            ? (double?)null
+            : Math.Round(Convert.ToDouble(raw), 5, MidpointRounding.AwayFromZero);
+    }
+
+    /// <summary>
+    /// Column =&gt; value map, for feeding MetricEvaluator.EvaluateAll(...).
+    /// Keyed by the same column names, case-insensitive.
+    /// </summary>
+    public IReadOnlyDictionary<string, double?> ToMetricMap()
+    {
+        return new Dictionary<string, double?>(StringComparer.OrdinalIgnoreCase)
+        {
+            [MetricColumns.EmployedProductiveFtesTotal] = EmployedProductiveFtesTotal,
+            [MetricColumns.ContractPercentTotal] = ContractPercentTotal,
+            [MetricColumns.ContractFtesTotal] = ContractFtesTotal,
+            [MetricColumns.TotalProductiveFtesTotal] = TotalProductiveFtesTotal,
+            [MetricColumns.NonProductivePercentTotal] = NonProductivePercentTotal,
+            [MetricColumns.NonProductiveFtesTotal] = NonProductiveFtesTotal,
+            [MetricColumns.EmployedPaidFtesTotal] = EmployedPaidFtesTotal,
+            [MetricColumns.TotalFtesTotal] = TotalFtesTotal,
+            [MetricColumns.TotalSalariesAndWagesTotal] = TotalSalariesAndWagesTotal,
+            [MetricColumns.TotalContractLaborDollarsTotal] = TotalContractLaborDollarsTotal,
+            [MetricColumns.TotalLaborExpenseTotal] = TotalLaborExpenseTotal,
+            [MetricColumns.EmployedLaborRateTotal] = EmployedLaborRateTotal,
+            [MetricColumns.ContractLaborRateTotal] = ContractLaborRateTotal,
+            [MetricColumns.OverTimePremiumDollarsTotal] = OverTimePremiumDollarsTotal,
+            [MetricColumns.OtPercentTotal] = OtPercentTotal,
+            [MetricColumns.OTFTEsTotal] = OTFTEsTotal,
+            [MetricColumns.Admissions] = Admissions,
+            [MetricColumns.AAdmissions] = AAdmissions,
+            [MetricColumns.PatientDays] = PatientDays,
+            [MetricColumns.APatientDays] = APatientDays,
+            [MetricColumns.ERVisits] = ERVisits,
+            [MetricColumns.Outpatient] = Outpatient,
+            [MetricColumns.OpFactor] = OpFactor,
+            [MetricColumns.ALOS] = ALOS,
+            [MetricColumns.EeobTotal] = EeobTotal,
+            [MetricColumns.MhAaTotal] = MhAaTotal,
+            [MetricColumns.OPFactorTotal] = OPFactorTotal,
+            [MetricColumns.ALOSTotal] = ALOSTotal,
+            [MetricColumns.FacilityEmployedProductiveFTEs] = FacilityEmployedProductiveFTEs,
+            [MetricColumns.FacilityContractLaborPercent] = FacilityContractLaborPercent,
+            [MetricColumns.FacilityContractFTEs] = FacilityContractFTEs,
+            [MetricColumns.FacilityTotalProductiveFTEs] = FacilityTotalProductiveFTEs,
+            [MetricColumns.FacilityEmployedNonProductivePercent] = FacilityEmployedNonProductivePercent,
+            [MetricColumns.FacilityNonProductiveFTEs] = FacilityNonProductiveFTEs,
+            [MetricColumns.FacilityEmployedPaidFTEs] = FacilityEmployedPaidFTEs,
+            [MetricColumns.FacilityTotalFTEsPaidContract] = FacilityTotalFTEsPaidContract,
+            [MetricColumns.FacilityTotalSalariesWages] = FacilityTotalSalariesWages,
+            [MetricColumns.FacilityTotalContractLabor] = FacilityTotalContractLabor,
+            [MetricColumns.FacilityTotalLaborExpense] = FacilityTotalLaborExpense,
+            [MetricColumns.FacilityEmployedLaborRate] = FacilityEmployedLaborRate,
+            [MetricColumns.FacilityContractLaborRate] = FacilityContractLaborRate,
+            [MetricColumns.FacilityOvertimePremiumDollars] = FacilityOvertimePremiumDollars,
+            [MetricColumns.FacilityOvertimePercent] = FacilityOvertimePercent,
+            [MetricColumns.FacilityOvertimeFTEs] = FacilityOvertimeFTEs,
+            [MetricColumns.FacilityAdmissions] = FacilityAdmissions,
+            [MetricColumns.FacilityAdjustedAdmissions] = FacilityAdjustedAdmissions,
+            [MetricColumns.FacilityPatientDays] = FacilityPatientDays,
+            [MetricColumns.FacilityAPD] = FacilityAPD,
+            [MetricColumns.FacilityERVisits] = FacilityERVisits,
+            [MetricColumns.FacilityOutpatientVisits] = FacilityOutpatientVisits,
+            [MetricColumns.FacilityOPFactor] = FacilityOPFactor,
+            [MetricColumns.FacilityALOS] = FacilityALOS,
+            [MetricColumns.BudgetGoalEeob] = BudgetGoalEeob,
+            [MetricColumns.BudgetGoalMh] = BudgetGoalMh,
+            [MetricColumns.PriorEmployedProductiveFTEs] = PriorEmployedProductiveFTEs,
+            [MetricColumns.PriorContractLaborPercent] = PriorContractLaborPercent,
+            [MetricColumns.PriorContractFTEs] = PriorContractFTEs,
+            [MetricColumns.PriorTotalProductiveFTEs] = PriorTotalProductiveFTEs,
+            [MetricColumns.PriorEmployedNonProductivePercent] = PriorEmployedNonProductivePercent,
+            [MetricColumns.PriorNonProductiveFTEs] = PriorNonProductiveFTEs,
+            [MetricColumns.PriorEmployedPaidFTEs] = PriorEmployedPaidFTEs,
+            [MetricColumns.PriorTotalFTEsPaidContract] = PriorTotalFTEsPaidContract,
+            [MetricColumns.PriorTotalSalariesWages] = PriorTotalSalariesWages,
+            [MetricColumns.PriorTotalContractLabor] = PriorTotalContractLabor,
+            [MetricColumns.PriorTotalLaborExpense] = PriorTotalLaborExpense,
+            [MetricColumns.PriorEmployedLaborRate] = PriorEmployedLaborRate,
+            [MetricColumns.PriorContractLaborRate] = PriorContractLaborRate,
+            [MetricColumns.PriorOvertimePremiumDollars] = PriorOvertimePremiumDollars,
+            [MetricColumns.PriorOvertimePercent] = PriorOvertimePercent,
+            [MetricColumns.PriorOvertimeFTEs] = PriorOvertimeFTEs,
+            [MetricColumns.PriorAdmissions] = PriorAdmissions,
+            [MetricColumns.PriorAdjustedAdmissions] = PriorAdjustedAdmissions,
+            [MetricColumns.PriorPatientDays] = PriorPatientDays,
+            [MetricColumns.PriorAPD] = PriorAPD,
+            [MetricColumns.PriorERVisits] = PriorERVisits,
+            [MetricColumns.PriorOutpatientVisits] = PriorOutpatientVisits,
+            [MetricColumns.PriorOPFactor] = PriorOPFactor,
+            [MetricColumns.PriorALOS] = PriorALOS,
+            [MetricColumns.PriorMHAA] = PriorMHAA,
+            [MetricColumns.PrioEeob] = PrioEeob,
+        };
+    }
+}
