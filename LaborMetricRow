@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace HealthTrust.LaborMetrics;
 
@@ -105,6 +107,17 @@ public sealed class LaborMetricRow
     /// <summary>Maps the first row of a result set. Returns null if there are no rows.</summary>
     public static LaborMetricRow? FromDataTable(DataTable table)
         => table.Rows.Count == 0 ? null : FromDataRow(table.Rows[0]);
+
+    /// <summary>
+    /// Maps the first row and guarantees a non-null object with all properties set.
+    /// Throws if the result set is empty — use this when a row is required for
+    /// downstream calculations.
+    /// </summary>
+    public static LaborMetricRow FromDataTableRequired(DataTable table)
+        => table.Rows.Count > 0
+            ? FromDataRow(table.Rows[0])
+            : throw new InvalidOperationException(
+                "The stored procedure returned no rows; expected exactly one labor-metric row.");
 
     /// <summary>Maps every row of a result set (e.g. one row per department/facility).</summary>
     public static IReadOnlyList<LaborMetricRow> FromDataTableAll(DataTable table)
@@ -307,5 +320,36 @@ public sealed class LaborMetricRow
             [MetricColumns.PriorMHAA] = PriorMHAA,
             [MetricColumns.PrioEeob] = PrioEeob,
         };
+    }
+}
+
+/// <summary>
+/// One-call helpers: run the stored procedure and hand back the populated
+/// LaborMetricRow object(s), so callers never touch the DataTable.
+/// </summary>
+public static class LaborMetricRunnerExtensions
+{
+    /// <summary>Runs the proc and returns the first row as a guaranteed non-null object.</summary>
+    public static async Task<LaborMetricRow> GetLaborMetricRowAsync(
+        this StoredProcedureRunner runner,
+        string procedureName,
+        IReadOnlyDictionary<string, object?>? parameters = null,
+        CancellationToken cancellationToken = default)
+    {
+        var table = await runner.ExecuteAsync(
+            procedureName, parameters, cancellationToken: cancellationToken);
+        return LaborMetricRow.FromDataTableRequired(table);
+    }
+
+    /// <summary>Runs the proc and returns every row as populated objects.</summary>
+    public static async Task<IReadOnlyList<LaborMetricRow>> GetLaborMetricRowsAsync(
+        this StoredProcedureRunner runner,
+        string procedureName,
+        IReadOnlyDictionary<string, object?>? parameters = null,
+        CancellationToken cancellationToken = default)
+    {
+        var table = await runner.ExecuteAsync(
+            procedureName, parameters, cancellationToken: cancellationToken);
+        return LaborMetricRow.FromDataTableAll(table);
     }
 }
