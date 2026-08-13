@@ -5,96 +5,110 @@ using System.Linq;
 namespace HealthTrust.LaborMetrics;
 
 /// <summary>
-/// Yearly prior-12-month summary. Each property is a display metric from the
-/// summary grid, prefixed with "Prior12Month", populated from the matching
-/// Prior* column on a <see cref="LaborMetricRow"/>.
-/// Source proc: rpt_GetLaborSumFacility.
+/// Yearly percent-change summary. Each property is the % change from the prior
+/// value to the current value for a metric, prefixed with "PercentChange".
+///   % Change = ((Current - Previous) / Previous) * 100, rounded to 2 decimals.
+/// Previous = Prior* column, Current = current-period *Total column.
 /// </summary>
-public sealed class LaborSummaryYearlyPrior12Month
+public sealed class LaborSummaryYearlyPercentChange
 {
     // ---- Volume & productivity --------------------------------------------
-    public double? Prior12MonthAdmissions { get; set; }
-    public double? Prior12MonthAdjustedAdmissions { get; set; }
-    public double? Prior12MonthPatientDays { get; set; }
-    public double? Prior12MonthAPD { get; set; }
-    public double? Prior12MonthERVisits { get; set; }
-    public double? Prior12MonthOutpatientVisits { get; set; }
-    public double? Prior12MonthOPFactor { get; set; }
-    public double? Prior12MonthALOS { get; set; }
-    public double? Prior12MonthEEOB { get; set; }
-    public double? Prior12MonthMHAA { get; set; }
+    public double? PercentChangeAdmissions { get; set; }
+    public double? PercentChangeAdjustedAdmissions { get; set; }
+    public double? PercentChangePatientDays { get; set; }
+    public double? PercentChangeAPD { get; set; }
+    public double? PercentChangeERVisits { get; set; }
+    public double? PercentChangeOutpatientVisits { get; set; }
+    public double? PercentChangeOPFactor { get; set; }
+    public double? PercentChangeALOS { get; set; }
+    public double? PercentChangeEEOB { get; set; }
+    public double? PercentChangeMHAA { get; set; }
 
     // ---- Labor cost & overtime --------------------------------------------
-    public double? Prior12MonthTotalSalariesAndWages { get; set; }   // ($000) — thousands
-    public double? Prior12MonthTotalContractLabor { get; set; }      // ($000) — thousands
-    public double? Prior12MonthTotalLaborExpense { get; set; }       // ($000) — thousands
-    public double? Prior12MonthEmployedLaborRate { get; set; }
-    public double? Prior12MonthContractLaborRate { get; set; }
-    public double? Prior12MonthOvertimePremiumDollars { get; set; }
-    public double? Prior12MonthOvertimePercent { get; set; }         // grid shows FormatDec(...)
-    public double? Prior12MonthOvertimeFTEs { get; set; }            // grid shows FormatGRV3(...)
+    public double? PercentChangeTotalSalariesAndWages { get; set; }
+    public double? PercentChangeTotalContractLabor { get; set; }
+    public double? PercentChangeTotalLaborExpense { get; set; }
+    public double? PercentChangeEmployedLaborRate { get; set; }
+    public double? PercentChangeContractLaborRate { get; set; }
+    public double? PercentChangeOvertimePremiumDollars { get; set; }
+    public double? PercentChangeOvertimePercent { get; set; }
+    public double? PercentChangeOvertimeFTEs { get; set; }
 
     // ---- Facility FTE summary ---------------------------------------------
-    public double? Prior12MonthEmployedProductiveFTEs { get; set; }
-    public double? Prior12MonthContractLaborPercent { get; set; }    // source * 100
-    public double? Prior12MonthContractFTEs { get; set; }
-    public double? Prior12MonthTotalProductiveFTEs { get; set; }     // grid shows FormatGRV3(...)
-    public double? Prior12MonthNonProductivePercent { get; set; }
-    public double? Prior12MonthNonProductiveFTEs { get; set; }       // grid shows FormatGRV3(...)
-    public double? Prior12MonthEmployedPaidFTEs { get; set; }
-    public double? Prior12MonthTotalFTEs { get; set; }               // computed: paid + contract
+    public double? PercentChangeEmployedProductiveFTEs { get; set; }
+    public double? PercentChangeContractLaborPercent { get; set; }   // previous side scaled *100
+    public double? PercentChangeContractFTEs { get; set; }
+    public double? PercentChangeTotalProductiveFTEs { get; set; }
+    public double? PercentChangeNonProductivePercent { get; set; }
+    public double? PercentChangeNonProductiveFTEs { get; set; }
+    public double? PercentChangeEmployedPaidFTEs { get; set; }
+    public double? PercentChangeTotalFTEs { get; set; }
 
     // -----------------------------------------------------------------------
-    // Mapping: assign each DB value from the row to its Prior12Month property.
+    // Mapping: compute each % change from the row's prior & current columns.
     // -----------------------------------------------------------------------
 
-    /// <summary>Builds a prior-12-month summary from one DB row.</summary>
-    public static LaborSummaryYearlyPrior12Month FromLaborMetricRow(LaborMetricRow row)
+    /// <summary>Builds a percent-change summary from one DB row.</summary>
+    public static LaborSummaryYearlyPercentChange FromLaborMetricRow(LaborMetricRow row)
     {
         ArgumentNullException.ThrowIfNull(row);
 
-        return new LaborSummaryYearlyPrior12Month
+        return new LaborSummaryYearlyPercentChange
         {
-            // Volume & productivity
-            Prior12MonthAdmissions         = row.PriorAdmissions,
-            Prior12MonthAdjustedAdmissions = row.PriorAdjustedAdmissions,
-            Prior12MonthPatientDays        = row.PriorPatientDays,
-            Prior12MonthAPD                = row.PriorAPD,
-            Prior12MonthERVisits           = row.PriorERVisits,
-            Prior12MonthOutpatientVisits   = row.PriorOutpatientVisits,
-            Prior12MonthOPFactor           = row.PriorOPFactor,
-            Prior12MonthALOS               = row.PriorALOS,
-            Prior12MonthEEOB               = row.PrioEeob,
-            Prior12MonthMHAA               = row.PriorMHAA,
+            // Volume & productivity          (current,                        previous)
+            PercentChangeAdmissions         = PctChange(row.Admissions,        row.PriorAdmissions),
+            PercentChangeAdjustedAdmissions = PctChange(row.AAdmissions,       row.PriorAdjustedAdmissions),
+            PercentChangePatientDays        = PctChange(row.PatientDays,       row.PriorPatientDays),
+            PercentChangeAPD                = PctChange(row.APatientDays,      row.PriorAPD),
+            PercentChangeERVisits           = PctChange(row.ERVisits,          row.PriorERVisits),
+            PercentChangeOutpatientVisits   = PctChange(row.Outpatient,        row.PriorOutpatientVisits),
+            PercentChangeOPFactor           = PctChange(row.OPFactorTotal,     row.PriorOPFactor),
+            PercentChangeALOS               = PctChange(row.ALOSTotal,         row.PriorALOS),
+            PercentChangeEEOB               = PctChange(row.EeobTotal,         row.PrioEeob),
+            PercentChangeMHAA               = PctChange(row.MhAaTotal,         row.PriorMHAA),
 
             // Labor cost & overtime
-            Prior12MonthTotalSalariesAndWages  = row.PriorTotalSalariesWages,
-            Prior12MonthTotalContractLabor     = row.PriorTotalContractLabor,
-            Prior12MonthTotalLaborExpense      = row.PriorTotalLaborExpense,
-            Prior12MonthEmployedLaborRate      = row.PriorEmployedLaborRate,
-            Prior12MonthContractLaborRate      = row.PriorContractLaborRate,
-            Prior12MonthOvertimePremiumDollars = row.PriorOvertimePremiumDollars,
-            Prior12MonthOvertimePercent        = row.PriorOvertimePercent, // grid: FormatDec(...) at display
-            Prior12MonthOvertimeFTEs           = row.PriorOvertimeFTEs,    // grid: FormatGRV3(...) at display
+            PercentChangeTotalSalariesAndWages  = PctChange(row.TotalSalariesAndWagesTotal,     row.PriorTotalSalariesWages),
+            PercentChangeTotalContractLabor     = PctChange(row.TotalContractLaborDollarsTotal, row.PriorTotalContractLabor),
+            PercentChangeTotalLaborExpense      = PctChange(row.TotalLaborExpenseTotal,         row.PriorTotalLaborExpense),
+            PercentChangeEmployedLaborRate      = PctChange(row.EmployedLaborRateTotal,         row.PriorEmployedLaborRate),
+            PercentChangeContractLaborRate      = PctChange(row.ContractLaborRateTotal,         row.PriorContractLaborRate),
+            PercentChangeOvertimePremiumDollars = PctChange(row.OverTimePremiumDollarsTotal,    row.PriorOvertimePremiumDollars),
+            PercentChangeOvertimePercent        = PctChange(row.OtPercentTotal,                 row.PriorOvertimePercent),
+            PercentChangeOvertimeFTEs           = PctChange(row.OTFTEsTotal,                    row.PriorOvertimeFTEs),
 
             // Facility FTE summary
-            Prior12MonthEmployedProductiveFTEs = row.PriorEmployedProductiveFTEs,
-            Prior12MonthContractLaborPercent   = row.PriorContractLaborPercent * 100,
-            Prior12MonthContractFTEs           = row.PriorContractFTEs,
-            Prior12MonthTotalProductiveFTEs    = row.PriorTotalProductiveFTEs, // grid: FormatGRV3(...) at display
-            Prior12MonthNonProductivePercent   = row.PriorEmployedNonProductivePercent,
-            Prior12MonthNonProductiveFTEs      = row.PriorNonProductiveFTEs,   // grid: FormatGRV3(...) at display
-            Prior12MonthEmployedPaidFTEs       = row.PriorEmployedPaidFTEs,
-            // Grid computes this as a sum rather than reading a single column.
-            Prior12MonthTotalFTEs              = row.PriorEmployedPaidFTEs + row.PriorContractFTEs,
+            PercentChangeEmployedProductiveFTEs = PctChange(row.EmployedProductiveFtesTotal, row.PriorEmployedProductiveFTEs),
+            PercentChangeContractLaborPercent   = PctChange(row.ContractPercentTotal,        row.PriorContractLaborPercent * 100),
+            PercentChangeContractFTEs           = PctChange(row.ContractFtesTotal,           row.PriorContractFTEs),
+            PercentChangeTotalProductiveFTEs    = PctChange(row.TotalProductiveFtesTotal,    row.PriorTotalProductiveFTEs),
+            PercentChangeNonProductivePercent   = PctChange(row.NonProductivePercentTotal,   row.PriorEmployedNonProductivePercent),
+            PercentChangeNonProductiveFTEs      = PctChange(row.NonProductiveFtesTotal,      row.PriorNonProductiveFTEs),
+            PercentChangeEmployedPaidFTEs       = PctChange(row.EmployedPaidFtesTotal,       row.PriorEmployedPaidFTEs),
+            PercentChangeTotalFTEs              = PctChange(row.TotalFtesTotal,              row.PriorTotalFTEsPaidContract),
         };
     }
 
-    /// <summary>Builds a prior-12-month summary for each DB row.</summary>
-    public static IReadOnlyList<LaborSummaryYearlyPrior12Month> FromLaborMetricRows(
+    /// <summary>Builds a percent-change summary for each DB row.</summary>
+    public static IReadOnlyList<LaborSummaryYearlyPercentChange> FromLaborMetricRows(
         IEnumerable<LaborMetricRow> rows)
     {
         ArgumentNullException.ThrowIfNull(rows);
         return rows.Select(FromLaborMetricRow).ToList();
+    }
+
+    /// <summary>
+    /// ((current - previous) / previous) * 100, rounded to 2 decimals.
+    /// Returns null when either side is missing or the previous value is zero
+    /// (division by zero / undefined base).
+    /// </summary>
+    private static double? PctChange(double? current, double? previous)
+    {
+        if (current is null || previous is null || previous.Value == 0.0)
+            return null;
+
+        return Math.Round(
+            (current.Value - previous.Value) / previous.Value * 100.0,
+            2, MidpointRounding.AwayFromZero);
     }
 }
