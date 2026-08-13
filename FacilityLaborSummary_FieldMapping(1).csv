@@ -2,7 +2,7 @@ Forecast Labor Summary - Facility Detail - Yearly,,,,,
 ,,,,,
 UI Field,Forecast ,Facility Goal ,Prior 12 Mon ,% Change ,
 ,,,,Previous,current
-FACILITY VOLUME SUMMARY,,,,,
+
 Admissions,Admissions,FacilityAdmissions,PriorAdmissions,PriorAdmissions, Admissions
 Adjusted Admissions,AAdmissions,FacilityAdjustedAdmissions,PriorAdjustedAdmissions,PriorAdjustedAdmissions, AAdmissions
 Patient Days,PatientDays,FacilityPatientDays,PriorPatientDays,PriorPatientDays, PatientDays
@@ -14,7 +14,7 @@ ALOS,ALOSTotal,(FacilityALOS,PriorALOS,PriorALOS, ALOSTotal
 EEOB,EeobTotal,(BudgetGoalEeob,(PrioEeob,PrioEeob, EeobTotal
 MH/AA,MhAaTotal,(BudgetGoalMh,(PriorMHAA,PriorMHAA, MhAaTotal
 ,,,,,
-FACILITY LABOR EXPENSE SUMMARY,,,,,
+
 Total Salaries & Wages ($000),TotalSalariesAndWagesTotal,FacilityTotalSalariesWages,PriorTotalSalariesWages,PriorTotalSalariesWages, TotalSalariesAndWagesTotal
 Total Contract Labor ($000),TotalContractLaborDollarsTotal,FacilityTotalContractLabor,PriorTotalContractLabor,PriorTotalContractLabor, TotalContractLaborDollarsTotal
 Total Labor Expense ($000),TotalLaborExpenseTotal,FacilityTotalLaborExpense,PriorTotalLaborExpense,PriorTotalLaborExpense, TotalLaborExpenseTotal
@@ -24,7 +24,7 @@ Overtime Premium Dollars,OverTimePremiumDollarsTotal,FacilityOvertimePremiumDoll
 Overtime %,OtPercentTotal,FacilityOvertimePercent,FormatDec(PriorOvertimePercent,PriorOvertimePercent, OtPercentTotal
 Overtime FTEs,OTFTEsTotal,FacilityOvertimeFTEs,FormatGRV3(PriorOvertimeFTEs,PriorOvertimeFTEs, OTFTEsTotal
 ,,,,,
-FACILITY FTE SUMMARY,,,,,
+
 Employed (Productive) FTEs,EmployedProductiveFtesTotal,FacilityEmployedProductiveFTEs,PriorEmployedProductiveFTEs,PriorEmployedProductiveFTEs, EmployedProductiveFtesTotal
 Contract Labor %,ContractPercentTotal,FacilityContractLaborPercent * 100,PriorContractLaborPercent * 100,PriorContractLaborPercent*100, ContractPercentTotal
 Contract FTEs,ContractFtesTotal,FacilityContractFTEs,PriorContractFTEs,PriorContractFTEs, ContractFtesTotal
@@ -39,4 +39,4 @@ Stored Procedure: rpt_GetLaborSumFacility,,,,,
 ,,,,,
 ,,,,,
 ,,,,,
-,,Formula GetDeltaPercentage,% Change = ((CurrentValue - PreviousValue) / PreviousValue) × 100,,
+,,Formula GetDeltaPercentage,% Change = ((CurrentValue - PreviousValue) / PreviousValue) Ã— 100,,
