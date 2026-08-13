@@ -22,6 +22,26 @@ public sealed class LaborSummaryYearlyForecast
     public double? ForecastEEOB { get; set; }
     public double? ForecastMHAA { get; set; }
 
+    // ---- Labor cost & overtime --------------------------------------------
+    public double? ForecastTotalSalariesAndWages { get; set; }   // ($000) — thousands
+    public double? ForecastTotalContractLabor { get; set; }      // ($000) — thousands
+    public double? ForecastTotalLaborExpense { get; set; }       // ($000) — thousands
+    public double? ForecastEmployedLaborRate { get; set; }       // raw rate; grid shows FormatGRV3(...)
+    public double? ForecastContractLaborRate { get; set; }
+    public double? ForecastOvertimePremiumDollars { get; set; }
+    public double? ForecastOvertimePercent { get; set; }
+    public double? ForecastOvertimeFTEs { get; set; }
+
+    // ---- Facility FTE summary ---------------------------------------------
+    public double? ForecastEmployedProductiveFTEs { get; set; }
+    public double? ForecastContractLaborPercent { get; set; }
+    public double? ForecastContractFTEs { get; set; }
+    public double? ForecastTotalProductiveFTEs { get; set; }
+    public double? ForecastNonProductivePercent { get; set; }
+    public double? ForecastNonProductiveFTEs { get; set; }
+    public double? ForecastEmployedPaidFTEs { get; set; }
+    public double? ForecastTotalFTEs { get; set; }
+
     // -----------------------------------------------------------------------
     // Mapping: assign each DB value from the row to its Forecast property.
     // -----------------------------------------------------------------------
@@ -43,6 +63,26 @@ public sealed class LaborSummaryYearlyForecast
             ForecastALOS               = row.ALOSTotal,
             ForecastEEOB               = row.EeobTotal,
             ForecastMHAA               = row.MhAaTotal,
+
+            // Labor cost & overtime
+            ForecastTotalSalariesAndWages  = row.TotalSalariesAndWagesTotal,
+            ForecastTotalContractLabor     = row.TotalContractLaborDollarsTotal,
+            ForecastTotalLaborExpense      = row.TotalLaborExpenseTotal,
+            ForecastEmployedLaborRate      = row.EmployedLaborRateTotal, // grid: FormatGRV3(...) at display
+            ForecastContractLaborRate      = row.ContractLaborRateTotal,
+            ForecastOvertimePremiumDollars = row.OverTimePremiumDollarsTotal,
+            ForecastOvertimePercent        = row.OtPercentTotal,
+            ForecastOvertimeFTEs           = row.OTFTEsTotal,
+
+            // Facility FTE summary (sourced from current-period *Total columns)
+            ForecastEmployedProductiveFTEs = row.EmployedProductiveFtesTotal,
+            ForecastContractLaborPercent   = row.ContractPercentTotal,
+            ForecastContractFTEs           = row.ContractFtesTotal,
+            ForecastTotalProductiveFTEs    = row.TotalProductiveFtesTotal,
+            ForecastNonProductivePercent   = row.NonProductivePercentTotal,
+            ForecastNonProductiveFTEs      = row.NonProductiveFtesTotal,
+            ForecastEmployedPaidFTEs       = row.EmployedPaidFtesTotal,
+            ForecastTotalFTEs              = row.TotalFtesTotal,
         };
     }
 
