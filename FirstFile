@@ -5,89 +5,91 @@ using System.Linq;
 namespace HealthTrust.LaborMetrics;
 
 /// <summary>
-/// Yearly forecast summary. Each property is a display metric from the summary
-/// grid, prefixed with "Forecast", populated from the matching DB column on a
-/// <see cref="LaborMetricRow"/>.
+/// Yearly facility-goal summary. Each property is a display metric from the
+/// summary grid, prefixed with "FacilityGoal", populated from the matching
+/// Facility*/BudgetGoal* column on a <see cref="LaborMetricRow"/>.
 /// </summary>
-public sealed class LaborSummaryYearlyForecast
+public sealed class LaborSummaryYearlyFacilityGoal
 {
-    public double? ForecastAdmissions { get; set; }
-    public double? ForecastAdjustedAdmissions { get; set; }
-    public double? ForecastPatientDays { get; set; }
-    public double? ForecastAPD { get; set; }
-    public double? ForecastERVisits { get; set; }
-    public double? ForecastOutpatientVisits { get; set; }
-    public double? ForecastOPFactor { get; set; }
-    public double? ForecastALOS { get; set; }
-    public double? ForecastEEOB { get; set; }
-    public double? ForecastMHAA { get; set; }
+    // ---- Volume & productivity --------------------------------------------
+    public double? FacilityGoalAdmissions { get; set; }
+    public double? FacilityGoalAdjustedAdmissions { get; set; }
+    public double? FacilityGoalPatientDays { get; set; }
+    public double? FacilityGoalAPD { get; set; }
+    public double? FacilityGoalERVisits { get; set; }
+    public double? FacilityGoalOutpatientVisits { get; set; }
+    public double? FacilityGoalOPFactor { get; set; }
+    public double? FacilityGoalALOS { get; set; }
+    public double? FacilityGoalEEOB { get; set; }   // from BudgetGoalEeob
+    public double? FacilityGoalMHAA { get; set; }    // from BudgetGoalMh
 
     // ---- Labor cost & overtime --------------------------------------------
-    public double? ForecastTotalSalariesAndWages { get; set; }   // ($000) — thousands
-    public double? ForecastTotalContractLabor { get; set; }      // ($000) — thousands
-    public double? ForecastTotalLaborExpense { get; set; }       // ($000) — thousands
-    public double? ForecastEmployedLaborRate { get; set; }       // raw rate; grid shows FormatGRV3(...)
-    public double? ForecastContractLaborRate { get; set; }
-    public double? ForecastOvertimePremiumDollars { get; set; }
-    public double? ForecastOvertimePercent { get; set; }
-    public double? ForecastOvertimeFTEs { get; set; }
+    public double? FacilityGoalTotalSalariesAndWages { get; set; }   // ($000) — thousands
+    public double? FacilityGoalTotalContractLabor { get; set; }      // ($000) — thousands
+    public double? FacilityGoalTotalLaborExpense { get; set; }       // ($000) — thousands
+    public double? FacilityGoalEmployedLaborRate { get; set; }       // raw rate; grid shows FormatGRV3(...)
+    public double? FacilityGoalContractLaborRate { get; set; }
+    public double? FacilityGoalOvertimePremiumDollars { get; set; }
+    public double? FacilityGoalOvertimePercent { get; set; }
+    public double? FacilityGoalOvertimeFTEs { get; set; }
 
     // ---- Facility FTE summary ---------------------------------------------
-    public double? ForecastEmployedProductiveFTEs { get; set; }
-    public double? ForecastContractLaborPercent { get; set; }
-    public double? ForecastContractFTEs { get; set; }
-    public double? ForecastTotalProductiveFTEs { get; set; }
-    public double? ForecastNonProductivePercent { get; set; }
-    public double? ForecastNonProductiveFTEs { get; set; }
-    public double? ForecastEmployedPaidFTEs { get; set; }
-    public double? ForecastTotalFTEs { get; set; }
+    public double? FacilityGoalEmployedProductiveFTEs { get; set; }
+    public double? FacilityGoalContractLaborPercent { get; set; }    // source * 100
+    public double? FacilityGoalContractFTEs { get; set; }
+    public double? FacilityGoalTotalProductiveFTEs { get; set; }
+    public double? FacilityGoalNonProductivePercent { get; set; }
+    public double? FacilityGoalNonProductiveFTEs { get; set; }
+    public double? FacilityGoalEmployedPaidFTEs { get; set; }
+    public double? FacilityGoalTotalFTEs { get; set; }
 
     // -----------------------------------------------------------------------
-    // Mapping: assign each DB value from the row to its Forecast property.
+    // Mapping: assign each DB value from the row to its FacilityGoal property.
     // -----------------------------------------------------------------------
 
-    /// <summary>Builds a forecast summary from one DB row.</summary>
-    public static LaborSummaryYearlyForecast FromLaborMetricRow(LaborMetricRow row)
+    /// <summary>Builds a facility-goal summary from one DB row.</summary>
+    public static LaborSummaryYearlyFacilityGoal FromLaborMetricRow(LaborMetricRow row)
     {
         ArgumentNullException.ThrowIfNull(row);
 
-        return new LaborSummaryYearlyForecast
+        return new LaborSummaryYearlyFacilityGoal
         {
-            ForecastAdmissions         = row.Admissions,
-            ForecastAdjustedAdmissions = row.AAdmissions,
-            ForecastPatientDays        = row.PatientDays,
-            ForecastAPD                = row.APatientDays,
-            ForecastERVisits           = row.ERVisits,
-            ForecastOutpatientVisits   = row.Outpatient,
-            ForecastOPFactor           = row.OPFactorTotal,
-            ForecastALOS               = row.ALOSTotal,
-            ForecastEEOB               = row.EeobTotal,
-            ForecastMHAA               = row.MhAaTotal,
+            // Volume & productivity
+            FacilityGoalAdmissions         = row.FacilityAdmissions,
+            FacilityGoalAdjustedAdmissions = row.FacilityAdjustedAdmissions,
+            FacilityGoalPatientDays        = row.FacilityPatientDays,
+            FacilityGoalAPD                = row.FacilityAPD,
+            FacilityGoalERVisits           = row.FacilityERVisits,
+            FacilityGoalOutpatientVisits   = row.FacilityOutpatientVisits,
+            FacilityGoalOPFactor           = row.FacilityOPFactor,
+            FacilityGoalALOS               = row.FacilityALOS,
+            FacilityGoalEEOB               = row.BudgetGoalEeob,
+            FacilityGoalMHAA               = row.BudgetGoalMh,
 
             // Labor cost & overtime
-            ForecastTotalSalariesAndWages  = row.TotalSalariesAndWagesTotal,
-            ForecastTotalContractLabor     = row.TotalContractLaborDollarsTotal,
-            ForecastTotalLaborExpense      = row.TotalLaborExpenseTotal,
-            ForecastEmployedLaborRate      = row.EmployedLaborRateTotal, // grid: FormatGRV3(...) at display
-            ForecastContractLaborRate      = row.ContractLaborRateTotal,
-            ForecastOvertimePremiumDollars = row.OverTimePremiumDollarsTotal,
-            ForecastOvertimePercent        = row.OtPercentTotal,
-            ForecastOvertimeFTEs           = row.OTFTEsTotal,
+            FacilityGoalTotalSalariesAndWages  = row.FacilityTotalSalariesWages,
+            FacilityGoalTotalContractLabor     = row.FacilityTotalContractLabor,
+            FacilityGoalTotalLaborExpense      = row.FacilityTotalLaborExpense,
+            FacilityGoalEmployedLaborRate      = row.FacilityEmployedLaborRate, // grid: FormatGRV3(...) at display
+            FacilityGoalContractLaborRate      = row.FacilityContractLaborRate,
+            FacilityGoalOvertimePremiumDollars = row.FacilityOvertimePremiumDollars,
+            FacilityGoalOvertimePercent        = row.FacilityOvertimePercent,
+            FacilityGoalOvertimeFTEs           = row.FacilityOvertimeFTEs,
 
-            // Facility FTE summary (sourced from current-period *Total columns)
-            ForecastEmployedProductiveFTEs = row.EmployedProductiveFtesTotal,
-            ForecastContractLaborPercent   = row.ContractPercentTotal,
-            ForecastContractFTEs           = row.ContractFtesTotal,
-            ForecastTotalProductiveFTEs    = row.TotalProductiveFtesTotal,
-            ForecastNonProductivePercent   = row.NonProductivePercentTotal,
-            ForecastNonProductiveFTEs      = row.NonProductiveFtesTotal,
-            ForecastEmployedPaidFTEs       = row.EmployedPaidFtesTotal,
-            ForecastTotalFTEs              = row.TotalFtesTotal,
+            // Facility FTE summary
+            FacilityGoalEmployedProductiveFTEs = row.FacilityEmployedProductiveFTEs,
+            FacilityGoalContractLaborPercent   = row.FacilityContractLaborPercent * 100,
+            FacilityGoalContractFTEs           = row.FacilityContractFTEs,
+            FacilityGoalTotalProductiveFTEs    = row.FacilityTotalProductiveFTEs,
+            FacilityGoalNonProductivePercent   = row.FacilityEmployedNonProductivePercent,
+            FacilityGoalNonProductiveFTEs      = row.FacilityNonProductiveFTEs,
+            FacilityGoalEmployedPaidFTEs       = row.FacilityEmployedPaidFTEs,
+            FacilityGoalTotalFTEs              = row.FacilityTotalFTEsPaidContract,
         };
     }
 
-    /// <summary>Builds a forecast summary for each DB row.</summary>
-    public static IReadOnlyList<LaborSummaryYearlyForecast> FromLaborMetricRows(
+    /// <summary>Builds a facility-goal summary for each DB row.</summary>
+    public static IReadOnlyList<LaborSummaryYearlyFacilityGoal> FromLaborMetricRows(
         IEnumerable<LaborMetricRow> rows)
     {
         ArgumentNullException.ThrowIfNull(rows);
