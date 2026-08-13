@@ -5,91 +5,93 @@ using System.Linq;
 namespace HealthTrust.LaborMetrics;
 
 /// <summary>
-/// Yearly facility-goal summary. Each property is a display metric from the
-/// summary grid, prefixed with "FacilityGoal", populated from the matching
-/// Facility*/BudgetGoal* column on a <see cref="LaborMetricRow"/>.
+/// Yearly prior-12-month summary. Each property is a display metric from the
+/// summary grid, prefixed with "Prior12Month", populated from the matching
+/// Prior* column on a <see cref="LaborMetricRow"/>.
+/// Source proc: rpt_GetLaborSumFacility.
 /// </summary>
-public sealed class LaborSummaryYearlyFacilityGoal
+public sealed class LaborSummaryYearlyPrior12Month
 {
     // ---- Volume & productivity --------------------------------------------
-    public double? FacilityGoalAdmissions { get; set; }
-    public double? FacilityGoalAdjustedAdmissions { get; set; }
-    public double? FacilityGoalPatientDays { get; set; }
-    public double? FacilityGoalAPD { get; set; }
-    public double? FacilityGoalERVisits { get; set; }
-    public double? FacilityGoalOutpatientVisits { get; set; }
-    public double? FacilityGoalOPFactor { get; set; }
-    public double? FacilityGoalALOS { get; set; }
-    public double? FacilityGoalEEOB { get; set; }   // from BudgetGoalEeob
-    public double? FacilityGoalMHAA { get; set; }    // from BudgetGoalMh
+    public double? Prior12MonthAdmissions { get; set; }
+    public double? Prior12MonthAdjustedAdmissions { get; set; }
+    public double? Prior12MonthPatientDays { get; set; }
+    public double? Prior12MonthAPD { get; set; }
+    public double? Prior12MonthERVisits { get; set; }
+    public double? Prior12MonthOutpatientVisits { get; set; }
+    public double? Prior12MonthOPFactor { get; set; }
+    public double? Prior12MonthALOS { get; set; }
+    public double? Prior12MonthEEOB { get; set; }
+    public double? Prior12MonthMHAA { get; set; }
 
     // ---- Labor cost & overtime --------------------------------------------
-    public double? FacilityGoalTotalSalariesAndWages { get; set; }   // ($000) — thousands
-    public double? FacilityGoalTotalContractLabor { get; set; }      // ($000) — thousands
-    public double? FacilityGoalTotalLaborExpense { get; set; }       // ($000) — thousands
-    public double? FacilityGoalEmployedLaborRate { get; set; }       // raw rate; grid shows FormatGRV3(...)
-    public double? FacilityGoalContractLaborRate { get; set; }
-    public double? FacilityGoalOvertimePremiumDollars { get; set; }
-    public double? FacilityGoalOvertimePercent { get; set; }
-    public double? FacilityGoalOvertimeFTEs { get; set; }
+    public double? Prior12MonthTotalSalariesAndWages { get; set; }   // ($000) — thousands
+    public double? Prior12MonthTotalContractLabor { get; set; }      // ($000) — thousands
+    public double? Prior12MonthTotalLaborExpense { get; set; }       // ($000) — thousands
+    public double? Prior12MonthEmployedLaborRate { get; set; }
+    public double? Prior12MonthContractLaborRate { get; set; }
+    public double? Prior12MonthOvertimePremiumDollars { get; set; }
+    public double? Prior12MonthOvertimePercent { get; set; }         // grid shows FormatDec(...)
+    public double? Prior12MonthOvertimeFTEs { get; set; }            // grid shows FormatGRV3(...)
 
     // ---- Facility FTE summary ---------------------------------------------
-    public double? FacilityGoalEmployedProductiveFTEs { get; set; }
-    public double? FacilityGoalContractLaborPercent { get; set; }    // source * 100
-    public double? FacilityGoalContractFTEs { get; set; }
-    public double? FacilityGoalTotalProductiveFTEs { get; set; }
-    public double? FacilityGoalNonProductivePercent { get; set; }
-    public double? FacilityGoalNonProductiveFTEs { get; set; }
-    public double? FacilityGoalEmployedPaidFTEs { get; set; }
-    public double? FacilityGoalTotalFTEs { get; set; }
+    public double? Prior12MonthEmployedProductiveFTEs { get; set; }
+    public double? Prior12MonthContractLaborPercent { get; set; }    // source * 100
+    public double? Prior12MonthContractFTEs { get; set; }
+    public double? Prior12MonthTotalProductiveFTEs { get; set; }     // grid shows FormatGRV3(...)
+    public double? Prior12MonthNonProductivePercent { get; set; }
+    public double? Prior12MonthNonProductiveFTEs { get; set; }       // grid shows FormatGRV3(...)
+    public double? Prior12MonthEmployedPaidFTEs { get; set; }
+    public double? Prior12MonthTotalFTEs { get; set; }               // computed: paid + contract
 
     // -----------------------------------------------------------------------
-    // Mapping: assign each DB value from the row to its FacilityGoal property.
+    // Mapping: assign each DB value from the row to its Prior12Month property.
     // -----------------------------------------------------------------------
 
-    /// <summary>Builds a facility-goal summary from one DB row.</summary>
-    public static LaborSummaryYearlyFacilityGoal FromLaborMetricRow(LaborMetricRow row)
+    /// <summary>Builds a prior-12-month summary from one DB row.</summary>
+    public static LaborSummaryYearlyPrior12Month FromLaborMetricRow(LaborMetricRow row)
     {
         ArgumentNullException.ThrowIfNull(row);
 
-        return new LaborSummaryYearlyFacilityGoal
+        return new LaborSummaryYearlyPrior12Month
         {
             // Volume & productivity
-            FacilityGoalAdmissions         = row.FacilityAdmissions,
-            FacilityGoalAdjustedAdmissions = row.FacilityAdjustedAdmissions,
-            FacilityGoalPatientDays        = row.FacilityPatientDays,
-            FacilityGoalAPD                = row.FacilityAPD,
-            FacilityGoalERVisits           = row.FacilityERVisits,
-            FacilityGoalOutpatientVisits   = row.FacilityOutpatientVisits,
-            FacilityGoalOPFactor           = row.FacilityOPFactor,
-            FacilityGoalALOS               = row.FacilityALOS,
-            FacilityGoalEEOB               = row.BudgetGoalEeob,
-            FacilityGoalMHAA               = row.BudgetGoalMh,
+            Prior12MonthAdmissions         = row.PriorAdmissions,
+            Prior12MonthAdjustedAdmissions = row.PriorAdjustedAdmissions,
+            Prior12MonthPatientDays        = row.PriorPatientDays,
+            Prior12MonthAPD                = row.PriorAPD,
+            Prior12MonthERVisits           = row.PriorERVisits,
+            Prior12MonthOutpatientVisits   = row.PriorOutpatientVisits,
+            Prior12MonthOPFactor           = row.PriorOPFactor,
+            Prior12MonthALOS               = row.PriorALOS,
+            Prior12MonthEEOB               = row.PrioEeob,
+            Prior12MonthMHAA               = row.PriorMHAA,
 
             // Labor cost & overtime
-            FacilityGoalTotalSalariesAndWages  = row.FacilityTotalSalariesWages,
-            FacilityGoalTotalContractLabor     = row.FacilityTotalContractLabor,
-            FacilityGoalTotalLaborExpense      = row.FacilityTotalLaborExpense,
-            FacilityGoalEmployedLaborRate      = row.FacilityEmployedLaborRate, // grid: FormatGRV3(...) at display
-            FacilityGoalContractLaborRate      = row.FacilityContractLaborRate,
-            FacilityGoalOvertimePremiumDollars = row.FacilityOvertimePremiumDollars,
-            FacilityGoalOvertimePercent        = row.FacilityOvertimePercent,
-            FacilityGoalOvertimeFTEs           = row.FacilityOvertimeFTEs,
+            Prior12MonthTotalSalariesAndWages  = row.PriorTotalSalariesWages,
+            Prior12MonthTotalContractLabor     = row.PriorTotalContractLabor,
+            Prior12MonthTotalLaborExpense      = row.PriorTotalLaborExpense,
+            Prior12MonthEmployedLaborRate      = row.PriorEmployedLaborRate,
+            Prior12MonthContractLaborRate      = row.PriorContractLaborRate,
+            Prior12MonthOvertimePremiumDollars = row.PriorOvertimePremiumDollars,
+            Prior12MonthOvertimePercent        = row.PriorOvertimePercent, // grid: FormatDec(...) at display
+            Prior12MonthOvertimeFTEs           = row.PriorOvertimeFTEs,    // grid: FormatGRV3(...) at display
 
             // Facility FTE summary
-            FacilityGoalEmployedProductiveFTEs = row.FacilityEmployedProductiveFTEs,
-            FacilityGoalContractLaborPercent   = row.FacilityContractLaborPercent * 100,
-            FacilityGoalContractFTEs           = row.FacilityContractFTEs,
-            FacilityGoalTotalProductiveFTEs    = row.FacilityTotalProductiveFTEs,
-            FacilityGoalNonProductivePercent   = row.FacilityEmployedNonProductivePercent,
-            FacilityGoalNonProductiveFTEs      = row.FacilityNonProductiveFTEs,
-            FacilityGoalEmployedPaidFTEs       = row.FacilityEmployedPaidFTEs,
-            FacilityGoalTotalFTEs              = row.FacilityTotalFTEsPaidContract,
+            Prior12MonthEmployedProductiveFTEs = row.PriorEmployedProductiveFTEs,
+            Prior12MonthContractLaborPercent   = row.PriorContractLaborPercent * 100,
+            Prior12MonthContractFTEs           = row.PriorContractFTEs,
+            Prior12MonthTotalProductiveFTEs    = row.PriorTotalProductiveFTEs, // grid: FormatGRV3(...) at display
+            Prior12MonthNonProductivePercent   = row.PriorEmployedNonProductivePercent,
+            Prior12MonthNonProductiveFTEs      = row.PriorNonProductiveFTEs,   // grid: FormatGRV3(...) at display
+            Prior12MonthEmployedPaidFTEs       = row.PriorEmployedPaidFTEs,
+            // Grid computes this as a sum rather than reading a single column.
+            Prior12MonthTotalFTEs              = row.PriorEmployedPaidFTEs + row.PriorContractFTEs,
         };
     }
 
-    /// <summary>Builds a facility-goal summary for each DB row.</summary>
-    public static IReadOnlyList<LaborSummaryYearlyFacilityGoal> FromLaborMetricRows(
+    /// <summary>Builds a prior-12-month summary for each DB row.</summary>
+    public static IReadOnlyList<LaborSummaryYearlyPrior12Month> FromLaborMetricRows(
         IEnumerable<LaborMetricRow> rows)
     {
         ArgumentNullException.ThrowIfNull(rows);
