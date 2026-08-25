@@ -1,0 +1,92 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
+namespace HealthTrust.LaborMetrics;
+
+/// <summary>One cell where the Excel (expected) value disagrees with the DB (actual/source).</summary>
+public sealed record LaborSummaryMismatch(
+    string Metric,
+    string Column,
+    double? DbValue,      // source of truth
+    double? ExcelValue,
+    double? Delta,        // ExcelValue - DbValue, when both present
+    string Reason);
+
+public static class LaborSummaryYearlyComparer
+{
+    /// <summary>
+    /// Compares the Excel grid against the DB grid at the given precision (default 5).
+    /// DB is the source of truth. Returns every mismatch; an empty list means all cells agree.
+    /// </summary>
+    /// <param name="excel">Expected values from getFacilityLaborSummaryYearlyExcelData(...).</param>
+    /// <param name="db">Actual values from LaborSummaryYearlyGrid.ToGrid(row).</param>
+    public static IReadOnlyList<LaborSummaryMismatch> Compare(
+        IReadOnlyDictionary<string, Dictionary<string, double>> excel,
+        IReadOnlyDictionary<string, Dictionary<string, double?>> db,
+        int decimals = 5)
+    {
+        ArgumentNullException.ThrowIfNull(excel);
+        ArgumentNullException.ThrowIfNull(db);
+
+        var mismatches = new List<LaborSummaryMismatch>();
+
+        // DB drives, since it's the source of truth.
+        foreach (var (metric, dbCols) in db)
+        {
+            if (!excel.TryGetValue(metric, out var excelCols))
+            {
+                foreach (var (column, dbVal) in dbCols)
+                    mismatches.Add(new LaborSummaryMismatch(
+                        metric, column, dbVal, null, null, "Metric missing from Excel"));
+                continue;
+            }
+
+            foreach (var (column, dbVal) in dbCols)
+            {
+                if (!excelCols.TryGetValue(column, out var excelValRaw))
+                {
+                    mismatches.Add(new LaborSummaryMismatch(
+                        metric, column, dbVal, null, null, "Column missing from Excel"));
+                    continue;
+                }
+
+                double? excelVal = excelValRaw;
+
+                if (dbVal is null)
+                {
+                    // Source has no value but Excel does — flag it.
+                    mismatches.Add(new LaborSummaryMismatch(
+                        metric, column, null, excelVal, null, "DB value is null"));
+                    continue;
+                }
+
+                var dbR = Math.Round(dbVal.Value, decimals, MidpointRounding.AwayFromZero);
+                var exR = Math.Round(excelVal.Value, decimals, MidpointRounding.AwayFromZero);
+
+                if (dbR != exR)
+                    mismatches.Add(new LaborSummaryMismatch(
+                        metric, column, dbR, exR, exR - dbR,
+                        $"Value differs beyond {decimals} decimals"));
+            }
+        }
+
+        return mismatches;
+    }
+
+    /// <summary>Convenience overload: compare straight from a DB row.</summary>
+    public static IReadOnlyList<LaborSummaryMismatch> Compare(
+        IReadOnlyDictionary<string, Dictionary<string, double>> excel,
+        LaborMetricRow row,
+        int decimals = 5)
+        => Compare(excel, LaborSummaryYearlyGrid.ToGrid(row), decimals);
+
+    /// <summary>Human-readable one-line-per-mismatch report, for logs or test output.</summary>
+    public static string Format(IReadOnlyList<LaborSummaryMismatch> mismatches)
+        => mismatches.Count == 0
+            ? "All cells match."
+            : string.Join(Environment.NewLine, mismatches.Select(m =>
+                $"[{m.Metric} / {m.Column}] DB={m.DbValue?.ToString() ?? "null"}  " +
+                $"Excel={m.ExcelValue?.ToString() ?? "null"}  " +
+                $"Delta={m.Delta?.ToString() ?? "-"}  ({m.Reason})"));
+}
