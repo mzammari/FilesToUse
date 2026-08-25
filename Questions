@@ -1,14 +1,161 @@
-"I'm hearing we're moving toward measuring productivity more quantitatively. I want to make sure I'm optimizing for the right things — what are the actual metrics that matter to you, especially for a QA/SDET role where output isn't really about code volume?
+public static Dictionary<string, Dictionary<string, double>> getFacilityLaborSummaryYearlyExcelData(string fileLocation, List<string> metrics, List<string> columns)
+{
+    var excelData = ExcelParser.ParseExcel(fileLocation, metrics, columns);
+    // Employed (Productive) FTEs
+    var EmployedProductiveFTEs_Forecast = excelData["Employed (Productive) FTEs"]["Forecast"];
+    var EmployedProductiveFTEs_FacilityGoal = excelData["Employed (Productive) FTEs"]["Facility Goal"];
+    var EmployedProductiveFTEs_Prior12Mon = excelData["Employed (Productive) FTEs"]["Prior 12 Mon"];
+    var EmployedProductiveFTEs_PercentageChange = excelData["Employed (Productive) FTEs"]["% Change"];
 
-On the AI push — I want to be deliberate rather than just adopting tools for their own sake. When you picture 'faster development with less code' working well a year from now, what does that actually look like on the ground? What would you want to see from a team like mine?
-I ask because I want to make sure the way we measure success and the way we adopt AI are pointing in the same direction — I want to be aiming at the right target.
+    // Contract Labor %
+    var ContractLaborPercentage_Forecast = excelData["Contract Labor %"]["Forecast"];
+    var ContractLaborPercentage_FacilityGoal = excelData["Contract Labor %"]["Facility Goal"];
+    var ContractLaborPercentage_Prior12Mon = excelData["Contract Labor %"]["Prior 12 Mon"];
+    var ContractLaborPercentage_PercentageChange = excelData["Contract Labor %"]["% Change"];
 
+    // Contract FTEs
+    var ContractFTEs_Forecast = excelData["Contract FTEs"]["Forecast"];
+    var ContractFTEs_FacilityGoal = excelData["Contract FTEs"]["Facility Goal"];
+    var ContractFTEs_Prior12Mon = excelData["Contract FTEs"]["Prior 12 Mon"];
+    var ContractFTEs_PercentageChange = excelData["Contract FTEs"]["% Change"];
 
-1. Metrics
-"I want to make sure I'm optimizing for the right things. What are the actual metrics that matter most to you — especially for a QA/SDET role, where the value isn't really in code volume?"
+    // Total Productive FTEs
+    var TotalProductiveFTEs_Forecast = excelData["Total Productive FTEs"]["Forecast"];
+    var TotalProductiveFTEs_FacilityGoal = excelData["Total Productive FTEs"]["Facility Goal"];
+    var TotalProductiveFTEs_Prior12Mon = excelData["Total Productive FTEs"]["Prior 12 Mon"];
+    var TotalProductiveFTEs_PercentageChange = excelData["Total Productive FTEs"]["% Change"];
 
-2. AI direction
-"I want to be deliberate about AI, not just adopt tools for their own sake. A year out, when 'faster development with less code' is working well, what does that look like on the ground — and what would you want to see from a team like mine?"
+    // Employed Non-Productive %
+    var EmployedNonProductivePercentage_Forecast = excelData["Employed Non-Productive %"]["Forecast"];
+    var EmployedNonProductivePercentage_FacilityGoal = excelData["Employed Non-Productive %"]["Facility Goal"];
+    var EmployedNonProductivePercentage_Prior12Mon = excelData["Employed Non-Productive %"]["Prior 12 Mon"];
+    var EmployedNonProductivePercentage_PercentageChange = excelData["Employed Non-Productive %"]["% Change"];
 
-3. Alignment (the tie-together)
-"I want to make sure how we measure success and how we adopt AI point in the same direction. Are those connected in how you're thinking about it?"
+    // Non-Productive FTEs
+    var NonProductiveFTEs_Forecast = excelData["Non-Productive FTEs"]["Forecast"];
+    var NonProductiveFTEs_FacilityGoal = excelData["Non-Productive FTEs"]["Facility Goal"];
+    var NonProductiveFTEs_Prior12Mon = excelData["Non-Productive FTEs"]["Prior 12 Mon"];
+    var NonProductiveFTEs_PercentageChange = excelData["Non-Productive FTEs"]["% Change"];
+
+    // Employed (Paid) FTEs
+    var EmployedPaidFTEs_Forecast = excelData["Employed (Paid) FTEs"]["Forecast"];
+    var EmployedPaidFTEs_FacilityGoal = excelData["Employed (Paid) FTEs"]["Facility Goal"];
+    var EmployedPaidFTEs_Prior12Mon = excelData["Employed (Paid) FTEs"]["Prior 12 Mon"];
+    var EmployedPaidFTEs_PercentageChange = excelData["Employed (Paid) FTEs"]["% Change"];
+
+    // Total FTEs (Paid + Contract)
+    var TotalFTEsPaidPlusContract_Forecast = excelData["Total FTEs (Paid + Contract)"]["Forecast"];
+    var TotalFTEsPaidPlusContract_FacilityGoal = excelData["Total FTEs (Paid + Contract)"]["Facility Goal"];
+    var TotalFTEsPaidPlusContract_Prior12Mon = excelData["Total FTEs (Paid + Contract)"]["Prior 12 Mon"];
+    var TotalFTEsPaidPlusContract_PercentageChange = excelData["Total FTEs (Paid + Contract)"]["% Change"];
+
+    // Total Salaries & Wages ($000)
+    var TotalSalariesAndWagesDollar000_Forecast = excelData["Total Salaries & Wages ($000)"]["Forecast"];
+    var TotalSalariesAndWagesDollar000_FacilityGoal = excelData["Total Salaries & Wages ($000)"]["Facility Goal"];
+    var TotalSalariesAndWagesDollar000_Prior12Mon = excelData["Total Salaries & Wages ($000)"]["Prior 12 Mon"];
+    var TotalSalariesAndWagesDollar000_PercentageChange = excelData["Total Salaries & Wages ($000)"]["% Change"];
+
+    // Total Contract Labor  ($000)
+    var TotalContractLaborDollar000_Forecast = excelData["Total Contract Labor  ($000)"]["Forecast"];
+    var TotalContractLaborDollar000_FacilityGoal = excelData["Total Contract Labor  ($000)"]["Facility Goal"];
+    var TotalContractLaborDollar000_Prior12Mon = excelData["Total Contract Labor  ($000)"]["Prior 12 Mon"];
+    var TotalContractLaborDollar000_PercentageChange = excelData["Total Contract Labor  ($000)"]["% Change"];
+
+    // Total Labor Expense  ($000)
+    var TotalLaborExpenseDollar000_Forecast = excelData["Total Labor Expense  ($000)"]["Forecast"];
+    var TotalLaborExpenseDollar000_FacilityGoal = excelData["Total Labor Expense  ($000)"]["Facility Goal"];
+    var TotalLaborExpenseDollar000_Prior12Mon = excelData["Total Labor Expense  ($000)"]["Prior 12 Mon"];
+    var TotalLaborExpenseDollar000_PercentageChange = excelData["Total Labor Expense  ($000)"]["% Change"];
+
+    // Employed Labor Rate
+    var EmployedLaborRate_Forecast = excelData["Employed Labor Rate"]["Forecast"];
+    var EmployedLaborRate_FacilityGoal = excelData["Employed Labor Rate"]["Facility Goal"];
+    var EmployedLaborRate_Prior12Mon = excelData["Employed Labor Rate"]["Prior 12 Mon"];
+    var EmployedLaborRate_PercentageChange = excelData["Employed Labor Rate"]["% Change"];
+
+    // Contract Labor Rate
+    var ContractLaborRate_Forecast = excelData["Contract Labor Rate"]["Forecast"];
+    var ContractLaborRate_FacilityGoal = excelData["Contract Labor Rate"]["Facility Goal"];
+    var ContractLaborRate_Prior12Mon = excelData["Contract Labor Rate"]["Prior 12 Mon"];
+    var ContractLaborRate_PercentageChange = excelData["Contract Labor Rate"]["% Change"];
+
+    // Overtime Premium Dollars
+    var OvertimePremiumDollars_Forecast = excelData["Overtime Premium Dollars"]["Forecast"];
+    var OvertimePremiumDollars_FacilityGoal = excelData["Overtime Premium Dollars"]["Facility Goal"];
+    var OvertimePremiumDollars_Prior12Mon = excelData["Overtime Premium Dollars"]["Prior 12 Mon"];
+    var OvertimePremiumDollars_PercentageChange = excelData["Overtime Premium Dollars"]["% Change"];
+
+    // Overtime %
+    var OvertimePercentage_Forecast = excelData["Overtime %"]["Forecast"];
+    var OvertimePercentage_FacilityGoal = excelData["Overtime %"]["Facility Goal"];
+    var OvertimePercentage_Prior12Mon = excelData["Overtime %"]["Prior 12 Mon"];
+    var OvertimePercentage_PercentageChange = excelData["Overtime %"]["% Change"];
+
+    // Overtime FTEs
+    var OvertimeFTEs_Forecast = excelData["Overtime FTEs"]["Forecast"];
+    var OvertimeFTEs_FacilityGoal = excelData["Overtime FTEs"]["Facility Goal"];
+    var OvertimeFTEs_Prior12Mon = excelData["Overtime FTEs"]["Prior 12 Mon"];
+    var OvertimeFTEs_PercentageChange = excelData["Overtime FTEs"]["% Change"];
+
+    // Admissions
+    var Admissions_Forecast = excelData["Admissions"]["Forecast"];
+    var Admissions_FacilityGoal = excelData["Admissions"]["Facility Goal"];
+    var Admissions_Prior12Mon = excelData["Admissions"]["Prior 12 Mon"];
+    var Admissions_PercentageChange = excelData["Admissions"]["% Change"];
+
+    // Adjusted Admissions
+    var AdjustedAdmissions_Forecast = excelData["Adjusted Admissions"]["Forecast"];
+    var AdjustedAdmissions_FacilityGoal = excelData["Adjusted Admissions"]["Facility Goal"];
+    var AdjustedAdmissions_Prior12Mon = excelData["Adjusted Admissions"]["Prior 12 Mon"];
+    var AdjustedAdmissions_PercentageChange = excelData["Adjusted Admissions"]["% Change"];
+
+    // Patient Days
+    var PatientDays_Forecast = excelData["Patient Days"]["Forecast"];
+    var PatientDays_FacilityGoal = excelData["Patient Days"]["Facility Goal"];
+    var PatientDays_Prior12Mon = excelData["Patient Days"]["Prior 12 Mon"];
+    var PatientDays_PercentageChange = excelData["Patient Days"]["% Change"];
+
+    // APD
+    var APD_Forecast = excelData["APD"]["Forecast"];
+    var APD_FacilityGoal = excelData["APD"]["Facility Goal"];
+    var APD_Prior12Mon = excelData["APD"]["Prior 12 Mon"];
+    var APD_PercentageChange = excelData["APD"]["% Change"];
+
+    // ER Visits
+    var ERVisits_Forecast = excelData["ER Visits"]["Forecast"];
+    var ERVisits_FacilityGoal = excelData["ER Visits"]["Facility Goal"];
+    var ERVisits_Prior12Mon = excelData["ER Visits"]["Prior 12 Mon"];
+    var ERVisits_PercentageChange = excelData["ER Visits"]["% Change"];
+
+    // Outpatient Visits
+    var OutpatientVisits_Forecast = excelData["Outpatient Visits"]["Forecast"];
+    var OutpatientVisits_FacilityGoal = excelData["Outpatient Visits"]["Facility Goal"];
+    var OutpatientVisits_Prior12Mon = excelData["Outpatient Visits"]["Prior 12 Mon"];
+    var OutpatientVisits_PercentageChange = excelData["Outpatient Visits"]["% Change"];
+
+    // OP Factor
+    var OPFactor_Forecast = excelData["OP Factor"]["Forecast"];
+    var OPFactor_FacilityGoal = excelData["OP Factor"]["Facility Goal"];
+    var OPFactor_Prior12Mon = excelData["OP Factor"]["Prior 12 Mon"];
+    var OPFactor_PercentageChange = excelData["OP Factor"]["% Change"];
+
+    // ALOS
+    var ALOS_Forecast = excelData["ALOS"]["Forecast"];
+    var ALOS_FacilityGoal = excelData["ALOS"]["Facility Goal"];
+    var ALOS_Prior12Mon = excelData["ALOS"]["Prior 12 Mon"];
+    var ALOS_PercentageChange = excelData["ALOS"]["% Change"];
+
+    // EEOB
+    var EEOB_Forecast = excelData["EEOB"]["Forecast"];
+    var EEOB_FacilityGoal = excelData["EEOB"]["Facility Goal"];
+    var EEOB_Prior12Mon = excelData["EEOB"]["Prior 12 Mon"];
+    var EEOB_PercentageChange = excelData["EEOB"]["% Change"];
+
+    // MH/AA
+    var MHAA_Forecast = excelData["MH/AA"]["Forecast"];
+    var MHAA_FacilityGoal = excelData["MH/AA"]["Facility Goal"];
+    var MHAA_Prior12Mon = excelData["MH/AA"]["Prior 12 Mon"];
+    var MHAA_PercentageChange = excelData["MH/AA"]["% Change"];
+
+    return excelData;
+}
