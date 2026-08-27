@@ -1,0 +1,99 @@
+using System;
+using System.Collections.Generic;
+using NUnit.Framework;
+
+namespace ISAS_Regression_Automation;
+
+/// <summary>
+/// Compares one Excel column (e.g. "Facility Goal") against the DB values for the
+/// same 26 metric labels. DB is the source of truth. Reusable across all sections.
+/// </summary>
+public static class LaborSummarySectionComparer
+{
+    /// <summary>
+    /// Returns every mismatch between the DB values (label =&gt; value) and the
+    /// given Excel column. Empty list = the section matches.
+    /// </summary>
+    /// <param name="dbValues">DB side, from e.g. facilityGoal.ToLabeledValues().</param>
+    /// <param name="excel">Excel grid from getFacilityLaborSummaryYearlyExcelData(...).</param>
+    /// <param name="excelColumn">Which Excel column to check: "Facility Goal", "Forecast", etc.</param>
+    /// <param name="decimals">Comparison precision (5).</param>
+    public static IReadOnlyList<string> Compare(
+        IReadOnlyDictionary<string, double?> dbValues,
+        IReadOnlyDictionary<string, Dictionary<string, double>> excel,
+        string excelColumn,
+        int decimals = 5)
+    {
+        ArgumentNullException.ThrowIfNull(dbValues);
+        ArgumentNullException.ThrowIfNull(excel);
+
+        var mismatches = new List<string>();
+
+        foreach (var (label, dbVal) in dbValues)
+        {
+            if (!excel.TryGetValue(label, out var cols))
+            {
+                mismatches.Add($"[{label}] missing from Excel");
+                continue;
+            }
+
+            if (!cols.TryGetValue(excelColumn, out var excelVal))
+            {
+                mismatches.Add($"[{label} / {excelColumn}] column missing from Excel");
+                continue;
+            }
+
+            if (dbVal is null)
+            {
+                mismatches.Add($"[{label} / {excelColumn}] DB value is null (Excel={excelVal})");
+                continue;
+            }
+
+            var db = Math.Round(dbVal.Value, decimals, MidpointRounding.AwayFromZero);
+            var ex = Math.Round(excelVal, decimals, MidpointRounding.AwayFromZero);
+
+            if (db != ex)
+                mismatches.Add($"[{label} / {excelColumn}] DB={db}  Excel={ex}  Delta={ex - db}");
+        }
+
+        return mismatches;
+    }
+}
+
+[TestFixture]
+public class LaborSummaryFacilityGoalTests
+{
+    // TODO: point these at your real values.
+    private const string FileLocation = @"C:\path\to\FacilityLaborSummary.xlsx";
+    private const long PlanId = 12345L;
+
+    [Test]
+    public async Task FacilityGoal_Column_Matches_DB()
+    {
+        // --- Expected: Excel "Facility Goal" column -------------------------
+        var metrics = new List<string>();   // pass the metric labels your parser expects
+        var columns = new List<string> { "Facility Goal" };
+        var excelData = Program.getFacilityLaborSummaryYearlyExcelData(FileLocation, metrics, columns);
+        //             ^ replace Program with whatever class hosts your parser method
+
+        // --- Actual (source of truth): DB row -> FacilityGoal object --------
+        var runner = new StoredProcedureRunner();
+        LaborMetricRow row = await runner.GetLaborMetricRowAsync(
+            "rpt_GetLaborSumFacility",
+            new Dictionary<string, object?> { ["PlanID"] = PlanId });
+
+        LaborSummaryYearlyFacilityGoal facilityGoal =
+            LaborSummaryYearlyFacilityGoal.FromLaborMetricRow(row);
+
+        Dictionary<string, double?> dbValues = facilityGoal.ToLabeledValues();
+
+        // --- Compare, 5 decimals -------------------------------------------
+        IReadOnlyList<string> mismatches =
+            LaborSummarySectionComparer.Compare(dbValues, excelData, "Facility Goal", decimals: 5);
+
+        // One assert, every mismatch printed.
+        Assert.That(mismatches, Is.Empty,
+            "Facility Goal mismatches:" + Environment.NewLine +
+            string.Join(Environment.NewLine, mismatches));
+    }
+}
