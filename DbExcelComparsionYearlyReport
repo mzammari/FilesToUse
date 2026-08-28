@@ -130,3 +130,38 @@ public class LaborSummaryFacilityGoalTests
             string.Join(Environment.NewLine, mismatches));
     }
 }
+
+
+
+
+var metrics = new List<string>
+{
+    "Employed (Productive) FTEs",
+    "Contract Labor %",
+    "Contract FTEs",
+    "Total Productive FTEs",
+    "Employed Non-Productive %",
+    "Non-Productive FTEs",
+    "Employed (Paid) FTEs",
+    "Total FTEs (Paid + Contract)",
+    "Total Salaries & Wages ($000)",
+    "Total Contract Labor  ($000)",   // double space before ($000)
+    "Total Labor Expense  ($000)",    // double space before ($000)
+    "Employed Labor Rate",
+    "Contract Labor Rate",
+    "Overtime Premium Dollars",
+    "Overtime %",
+    "Overtime FTEs",
+    "Admissions",
+    "Adjusted Admissions",
+    "Patient Days",
+    "APD",
+    "ER Visits",
+    "Outpatient Visits",
+    "OP Factor",
+    "ALOS",
+    "EEOB",
+    "MH/AA",
+};
+
+var columns = new List<string> { "Forecast", "Facility Goal", "Prior 12 Mon", "% Change" };
