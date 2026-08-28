@@ -1,0 +1,130 @@
+// Add each method below into its matching class body.
+// Requires: using System;  using System.Collections.Generic;
+
+// ========================= LaborSummaryYearlyForecast =========================
+    public Dictionary<string, double?> ToLabeledValues() =>
+        new(StringComparer.Ordinal)
+        {
+            ["Admissions"]                    = ForecastAdmissions,
+            ["Adjusted Admissions"]           = ForecastAdjustedAdmissions,
+            ["Patient Days"]                  = ForecastPatientDays,
+            ["APD"]                           = ForecastAPD,
+            ["ER Visits"]                     = ForecastERVisits,
+            ["Outpatient Visits"]             = ForecastOutpatientVisits,
+            ["OP Factor"]                     = ForecastOPFactor,
+            ["ALOS"]                          = ForecastALOS,
+            ["EEOB"]                          = ForecastEEOB,
+            ["MH/AA"]                         = ForecastMHAA,
+            ["Total Salaries & Wages ($000)"] = ForecastTotalSalariesAndWages,
+            ["Total Contract Labor  ($000)"]  = ForecastTotalContractLabor,
+            ["Total Labor Expense  ($000)"]   = ForecastTotalLaborExpense,
+            ["Employed Labor Rate"]           = ForecastEmployedLaborRate,
+            ["Contract Labor Rate"]           = ForecastContractLaborRate,
+            ["Overtime Premium Dollars"]      = ForecastOvertimePremiumDollars,
+            ["Overtime %"]                    = ForecastOvertimePercent,
+            ["Overtime FTEs"]                 = ForecastOvertimeFTEs,
+            ["Employed (Productive) FTEs"]    = ForecastEmployedProductiveFTEs,
+            ["Contract Labor %"]              = ForecastContractLaborPercent,
+            ["Contract FTEs"]                 = ForecastContractFTEs,
+            ["Total Productive FTEs"]         = ForecastTotalProductiveFTEs,
+            ["Employed Non-Productive %"]     = ForecastNonProductivePercent,
+            ["Non-Productive FTEs"]           = ForecastNonProductiveFTEs,
+            ["Employed (Paid) FTEs"]          = ForecastEmployedPaidFTEs,
+            ["Total FTEs (Paid + Contract)"]  = ForecastTotalFTEs,
+        };
+
+// ========================= LaborSummaryYearlyFacilityGoal =========================
+    public Dictionary<string, double?> ToLabeledValues() =>
+        new(StringComparer.Ordinal)
+        {
+            ["Admissions"]                    = FacilityGoalAdmissions,
+            ["Adjusted Admissions"]           = FacilityGoalAdjustedAdmissions,
+            ["Patient Days"]                  = FacilityGoalPatientDays,
+            ["APD"]                           = FacilityGoalAPD,
+            ["ER Visits"]                     = FacilityGoalERVisits,
+            ["Outpatient Visits"]             = FacilityGoalOutpatientVisits,
+            ["OP Factor"]                     = FacilityGoalOPFactor,
+            ["ALOS"]                          = FacilityGoalALOS,
+            ["EEOB"]                          = FacilityGoalEEOB,
+            ["MH/AA"]                         = FacilityGoalMHAA,
+            ["Total Salaries & Wages ($000)"] = FacilityGoalTotalSalariesAndWages,
+            ["Total Contract Labor  ($000)"]  = FacilityGoalTotalContractLabor,
+            ["Total Labor Expense  ($000)"]   = FacilityGoalTotalLaborExpense,
+            ["Employed Labor Rate"]           = FacilityGoalEmployedLaborRate,
+            ["Contract Labor Rate"]           = FacilityGoalContractLaborRate,
+            ["Overtime Premium Dollars"]      = FacilityGoalOvertimePremiumDollars,
+            ["Overtime %"]                    = FacilityGoalOvertimePercent,
+            ["Overtime FTEs"]                 = FacilityGoalOvertimeFTEs,
+            ["Employed (Productive) FTEs"]    = FacilityGoalEmployedProductiveFTEs,
+            ["Contract Labor %"]              = FacilityGoalContractLaborPercent,
+            ["Contract FTEs"]                 = FacilityGoalContractFTEs,
+            ["Total Productive FTEs"]         = FacilityGoalTotalProductiveFTEs,
+            ["Employed Non-Productive %"]     = FacilityGoalNonProductivePercent,
+            ["Non-Productive FTEs"]           = FacilityGoalNonProductiveFTEs,
+            ["Employed (Paid) FTEs"]          = FacilityGoalEmployedPaidFTEs,
+            ["Total FTEs (Paid + Contract)"]  = FacilityGoalTotalFTEs,
+        };
+
+// ========================= LaborSummaryYearlyPrior12Month =========================
+    public Dictionary<string, double?> ToLabeledValues() =>
+        new(StringComparer.Ordinal)
+        {
+            ["Admissions"]                    = Prior12MonthAdmissions,
+            ["Adjusted Admissions"]           = Prior12MonthAdjustedAdmissions,
+            ["Patient Days"]                  = Prior12MonthPatientDays,
+            ["APD"]                           = Prior12MonthAPD,
+            ["ER Visits"]                     = Prior12MonthERVisits,
+            ["Outpatient Visits"]             = Prior12MonthOutpatientVisits,
+            ["OP Factor"]                     = Prior12MonthOPFactor,
+            ["ALOS"]                          = Prior12MonthALOS,
+            ["EEOB"]                          = Prior12MonthEEOB,
+            ["MH/AA"]                         = Prior12MonthMHAA,
+            ["Total Salaries & Wages ($000)"] = Prior12MonthTotalSalariesAndWages,
+            ["Total Contract Labor  ($000)"]  = Prior12MonthTotalContractLabor,
+            ["Total Labor Expense  ($000)"]   = Prior12MonthTotalLaborExpense,
+            ["Employed Labor Rate"]           = Prior12MonthEmployedLaborRate,
+            ["Contract Labor Rate"]           = Prior12MonthContractLaborRate,
+            ["Overtime Premium Dollars"]      = Prior12MonthOvertimePremiumDollars,
+            ["Overtime %"]                    = Prior12MonthOvertimePercent,
+            ["Overtime FTEs"]                 = Prior12MonthOvertimeFTEs,
+            ["Employed (Productive) FTEs"]    = Prior12MonthEmployedProductiveFTEs,
+            ["Contract Labor %"]              = Prior12MonthContractLaborPercent,
+            ["Contract FTEs"]                 = Prior12MonthContractFTEs,
+            ["Total Productive FTEs"]         = Prior12MonthTotalProductiveFTEs,
+            ["Employed Non-Productive %"]     = Prior12MonthNonProductivePercent,
+            ["Non-Productive FTEs"]           = Prior12MonthNonProductiveFTEs,
+            ["Employed (Paid) FTEs"]          = Prior12MonthEmployedPaidFTEs,
+            ["Total FTEs (Paid + Contract)"]  = Prior12MonthTotalFTEs,
+        };
+
+// ========================= LaborSummaryYearlyPercentChange =========================
+    public Dictionary<string, double?> ToLabeledValues() =>
+        new(StringComparer.Ordinal)
+        {
+            ["Admissions"]                    = PercentChangeAdmissions,
+            ["Adjusted Admissions"]           = PercentChangeAdjustedAdmissions,
+            ["Patient Days"]                  = PercentChangePatientDays,
+            ["APD"]                           = PercentChangeAPD,
+            ["ER Visits"]                     = PercentChangeERVisits,
+            ["Outpatient Visits"]             = PercentChangeOutpatientVisits,
+            ["OP Factor"]                     = PercentChangeOPFactor,
+            ["ALOS"]                          = PercentChangeALOS,
+            ["EEOB"]                          = PercentChangeEEOB,
+            ["MH/AA"]                         = PercentChangeMHAA,
+            ["Total Salaries & Wages ($000)"] = PercentChangeTotalSalariesAndWages,
+            ["Total Contract Labor  ($000)"]  = PercentChangeTotalContractLabor,
+            ["Total Labor Expense  ($000)"]   = PercentChangeTotalLaborExpense,
+            ["Employed Labor Rate"]           = PercentChangeEmployedLaborRate,
+            ["Contract Labor Rate"]           = PercentChangeContractLaborRate,
+            ["Overtime Premium Dollars"]      = PercentChangeOvertimePremiumDollars,
+            ["Overtime %"]                    = PercentChangeOvertimePercent,
+            ["Overtime FTEs"]                 = PercentChangeOvertimeFTEs,
+            ["Employed (Productive) FTEs"]    = PercentChangeEmployedProductiveFTEs,
+            ["Contract Labor %"]              = PercentChangeContractLaborPercent,
+            ["Contract FTEs"]                 = PercentChangeContractFTEs,
+            ["Total Productive FTEs"]         = PercentChangeTotalProductiveFTEs,
+            ["Employed Non-Productive %"]     = PercentChangeNonProductivePercent,
+            ["Non-Productive FTEs"]           = PercentChangeNonProductiveFTEs,
+            ["Employed (Paid) FTEs"]          = PercentChangeEmployedPaidFTEs,
+            ["Total FTEs (Paid + Contract)"]  = PercentChangeTotalFTEs,
+        };
