@@ -1,3 +1,11 @@
+
+var forecastMiss     = LaborSummarySectionComparer.Compare(LaborSummaryYearlyForecast.FromLaborMetricRow(row).ToLabeledValues(),     excelData, "Forecast",      5);
+var facilityGoalMiss = LaborSummarySectionComparer.Compare(LaborSummaryYearlyFacilityGoal.FromLaborMetricRow(row).ToLabeledValues(), excelData, "Facility Goal", 5);
+var prior12Miss      = LaborSummarySectionComparer.Compare(LaborSummaryYearlyPrior12Month.FromLaborMetricRow(row).ToLabeledValues(), excelData, "Prior 12 Mon",  5);
+var pctChangeMiss    = LaborSummarySectionComparer.Compare(LaborSummaryYearlyPercentChange.FromLaborMetricRow(row).ToLabeledValues(),excelData, "% Change",      5);
+
+
+
 // Add each method below into its matching class body.
 // Requires: using System;  using System.Collections.Generic;
 
