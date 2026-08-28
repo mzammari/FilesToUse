@@ -60,6 +60,39 @@ public static class LaborSummarySectionComparer
     }
 }
 
+
+/// <summary>DB "Facility Goal" column keyed by the exact Excel metric labels.</summary>
+public Dictionary<string, double?> ToLabeledValues() =>
+    new(StringComparer.Ordinal)
+    {
+        ["Admissions"]                     = FacilityGoalAdmissions,
+        ["Adjusted Admissions"]            = FacilityGoalAdjustedAdmissions,
+        ["Patient Days"]                   = FacilityGoalPatientDays,
+        ["APD"]                            = FacilityGoalAPD,
+        ["ER Visits"]                      = FacilityGoalERVisits,
+        ["Outpatient Visits"]              = FacilityGoalOutpatientVisits,
+        ["OP Factor"]                      = FacilityGoalOPFactor,
+        ["ALOS"]                           = FacilityGoalALOS,
+        ["EEOB"]                           = FacilityGoalEEOB,
+        ["MH/AA"]                          = FacilityGoalMHAA,
+        ["Total Salaries & Wages ($000)"]  = FacilityGoalTotalSalariesAndWages,
+        ["Total Contract Labor  ($000)"]   = FacilityGoalTotalContractLabor,   // double space
+        ["Total Labor Expense  ($000)"]    = FacilityGoalTotalLaborExpense,    // double space
+        ["Employed Labor Rate"]            = FacilityGoalEmployedLaborRate,
+        ["Contract Labor Rate"]            = FacilityGoalContractLaborRate,
+        ["Overtime Premium Dollars"]       = FacilityGoalOvertimePremiumDollars,
+        ["Overtime %"]                     = FacilityGoalOvertimePercent,
+        ["Overtime FTEs"]                  = FacilityGoalOvertimeFTEs,
+        ["Employed (Productive) FTEs"]     = FacilityGoalEmployedProductiveFTEs,
+        ["Contract Labor %"]               = FacilityGoalContractLaborPercent,
+        ["Contract FTEs"]                  = FacilityGoalContractFTEs,
+        ["Total Productive FTEs"]          = FacilityGoalTotalProductiveFTEs,
+        ["Employed Non-Productive %"]      = FacilityGoalNonProductivePercent,
+        ["Non-Productive FTEs"]            = FacilityGoalNonProductiveFTEs,
+        ["Employed (Paid) FTEs"]           = FacilityGoalEmployedPaidFTEs,
+        ["Total FTEs (Paid + Contract)"]   = FacilityGoalTotalFTEs,
+    };
+
 [TestFixture]
 public class LaborSummaryFacilityGoalTests
 {
