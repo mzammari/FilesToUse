@@ -1,0 +1,2 @@
+var options = new ChromeOptions();
+options.AddArgument("--disable-features=LocalNetworkAccessChecks");
