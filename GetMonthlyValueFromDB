@@ -1,0 +1,48 @@
+public static MonthlyForcastView GetMonthlyForecast(string connectionString)
+{
+    const string sql = @"
+        SELECT Month,
+               SUM(ROUND(EmployeeProductiveHours, 0)) / 5.714 / 31 AS MonthlyValue
+        FROM WftMonthlyValue
+        WHERE WftDepartment_ID IN (
+                SELECT Id FROM WftDepartment d
+                WHERE WftPlan_ID = 248830583
+                  AND d.Department_ID IN (
+                        SELECT id FROM Department dd
+                        WHERE Facility_ID = 1463471
+                          AND dd.IsInactiveInWFT = 0))
+          AND Month IN (1,2,3,4,5,6,7,8,9,10,11,12)
+        GROUP BY Month
+        ORDER BY Month;";
+
+    var view = new MonthlyForcastView();
+
+    using var connection = new SqlConnection(connectionString);
+    using var command = new SqlCommand(sql, connection);
+    connection.Open();
+
+    using var reader = command.ExecuteReader();
+    while (reader.Read())
+    {
+        int month = Convert.ToInt32(reader["Month"]);
+        decimal value = Convert.ToDecimal(reader["MonthlyValue"]);
+
+        switch (month)
+        {
+            case 1:  view.Jan = value; break;
+            case 2:  view.Feb = value; break;
+            case 3:  view.Mar = value; break;
+            case 4:  view.Apr = value; break;
+            case 5:  view.May = value; break;
+            case 6:  view.Jun = value; break;
+            case 7:  view.Jul = value; break;
+            case 8:  view.Aug = value; break;
+            case 9:  view.Sep = value; break;
+            case 10: view.Oct = value; break;
+            case 11: view.Nov = value; break;
+            case 12: view.Dec = value; break;
+        }
+    }
+
+    return view;
+}
