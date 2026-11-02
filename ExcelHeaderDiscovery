@@ -1,166 +1,75 @@
-using ExcelDataReader;
 using System;
 using System.Collections.Generic;
 using System.Data;
 using System.IO;
 using System.Linq;
 using System.Text;
+using ExcelDataReader;
 
-namespace ISAS.Automation
+namespace ISAS_Regression_Automation
 {
     /// <summary>
-    /// Represents a discovered column header with its position metadata.
+    /// STAND-IN for your team's ExcelHeaderDiscovery class, so this project runs on its own.
+    /// If you drop ExcelParser.cs into the real ISAS project, DELETE this file and use the real one.
     /// </summary>
-    public class ColumnInfo
+    public class HeaderInfo
     {
         public string HeaderName { get; set; }
-        public int ColumnIndex { get; set; }       // 0-based (DataTable convention)
-        public string ColumnLetter { get; set; }   // "A", "B", ... "AA", etc.
-        public int HeaderRow { get; set; }          // Which row the header was found in
-
-        public override string ToString()
-            => $"{ColumnLetter} (Col {ColumnIndex}) -> \"{HeaderName}\" [Row {HeaderRow}]";
+        public int ColumnIndex { get; set; }
+        public int HeaderRow { get; set; }
     }
 
-    /// <summary>
-    /// Auto-discovers column headers from an Excel file (.xls or .xlsx).
-    /// Uses ExcelDataReader to support both formats.
-    /// </summary>
     public static class ExcelHeaderDiscovery
     {
-        /// <summary>
-        /// Register the encoding provider. Call once at app startup or it's called automatically.
-        /// </summary>
         static ExcelHeaderDiscovery()
         {
+            // Required on .NET Core / .NET 5+ to read old .xls files
             Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
         }
 
-        /// <summary>
-        /// Reads an Excel file into a DataTable. Supports .xls and .xlsx.
-        /// </summary>
-        public static DataTable ReadSheet(string filePath, string sheetName = null)
+        /// <summary>Read one sheet (first sheet if sheetName is null) into a DataTable, no header row.</summary>
+        public static DataTable ReadSheet(string fileLocation, string sheetName = null)
         {
-            using var stream = File.Open(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var stream = File.Open(fileLocation, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
             using var reader = ExcelReaderFactory.CreateReader(stream);
+            var ds = reader.AsDataSet(new ExcelDataSetConfiguration
+            {
+                ConfigureDataTable = _ => new ExcelDataTableConfiguration { UseHeaderRow = false }
+            });
 
-            var dataSet = reader.AsDataSet();
+            if (sheetName == null) return ds.Tables[0];
 
-            if (dataSet.Tables.Count == 0)
-                throw new Exception("No sheets found in the Excel file.");
-
-            return sheetName != null
-                ? dataSet.Tables[sheetName] ?? throw new KeyNotFoundException($"Sheet '{sheetName}' not found.")
-                : dataSet.Tables[0];
+            return ds.Tables.Cast<DataTable>()
+                       .FirstOrDefault(t => t.TableName.Equals(sheetName, StringComparison.OrdinalIgnoreCase))
+                   ?? throw new ArgumentException($"Sheet '{sheetName}' not found.");
         }
 
         /// <summary>
-        /// Scans a DataTable and returns a dictionary of header name -> ColumnInfo.
+        /// Find the header row (headerRow if > 0, otherwise the first row with 3+ non-empty cells)
+        /// and return its headers keyed by name.
         /// </summary>
-        public static Dictionary<string, ColumnInfo> GetHeaders(
-            DataTable table,
-            int headerRow = 0,
-            bool normalize = true)
+        public static Dictionary<string, HeaderInfo> GetHeaders(DataTable table, int headerRow = 0)
         {
-            // Auto-detect header row if not specified
-            if (headerRow <= 0)
-                headerRow = DetectHeaderRow(table);
-
-            var headers = new Dictionary<string, ColumnInfo>(
-                normalize ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
-
-            var row = table.Rows[headerRow];
+            int row = headerRow > 0 ? headerRow : FindHeaderRow(table);
+            var headers = new Dictionary<string, HeaderInfo>(StringComparer.OrdinalIgnoreCase);
 
             for (int col = 0; col < table.Columns.Count; col++)
             {
-                string value = row[col]?.ToString()?.Trim();
-
-                if (string.IsNullOrWhiteSpace(value))
-                    continue;
-
-                string key = normalize ? value.ToUpperInvariant().Trim() : value;
-
-                // Handle duplicate headers by appending suffix
-                string uniqueKey = key;
-                int suffix = 2;
-                while (headers.ContainsKey(uniqueKey))
-                    uniqueKey = $"{key}_{suffix++}";
-
-                headers[uniqueKey] = new ColumnInfo
-                {
-                    HeaderName = value,
-                    ColumnIndex = col,
-                    ColumnLetter = ColumnIndexToLetter(col + 1), // convert 0-based to 1-based for letter
-                    HeaderRow = headerRow
-                };
+                string name = table.Rows[row][col]?.ToString()?.Trim();
+                if (string.IsNullOrEmpty(name) || headers.ContainsKey(name)) continue;
+                headers[name] = new HeaderInfo { HeaderName = name, ColumnIndex = col, HeaderRow = row };
             }
-
             return headers;
         }
 
-        /// <summary>
-        /// Convenience: get headers directly from file path.
-        /// </summary>
-        public static Dictionary<string, ColumnInfo> GetHeaders(
-            string filePath,
-            string sheetName = null,
-            int headerRow = 0,
-            bool normalize = true)
+        private static int FindHeaderRow(DataTable table)
         {
-            var table = ReadSheet(filePath, sheetName);
-            return GetHeaders(table, headerRow, normalize);
-        }
-
-        /// <summary>
-        /// Auto-detects which row contains headers by finding the first row
-        /// with multiple non-empty cells.
-        /// </summary>
-        private static int DetectHeaderRow(DataTable table, int maxScanRows = 20)
-        {
-            int rowsToScan = Math.Min(table.Rows.Count, maxScanRows);
-
-            for (int row = 0; row < rowsToScan; row++)
+            for (int r = 0; r < table.Rows.Count; r++)
             {
-                int nonEmptyCount = 0;
-                for (int col = 0; col < table.Columns.Count; col++)
-                {
-                    if (!string.IsNullOrWhiteSpace(table.Rows[row][col]?.ToString()))
-                        nonEmptyCount++;
-                }
-
-                if (nonEmptyCount >= 2)
-                    return row;
+                int filled = table.Rows[r].ItemArray.Count(v => !string.IsNullOrWhiteSpace(v?.ToString()));
+                if (filled >= 3) return r;
             }
-
-            return 0; // Fallback to row 0
-        }
-
-        /// <summary>
-        /// Converts a 1-based column index to Excel column letter(s).
-        /// 1 -> A, 26 -> Z, 27 -> AA, etc.
-        /// </summary>
-        public static string ColumnIndexToLetter(int columnIndex)
-        {
-            string result = string.Empty;
-            while (columnIndex > 0)
-            {
-                int remainder = (columnIndex - 1) % 26;
-                result = (char)('A' + remainder) + result;
-                columnIndex = (columnIndex - 1) / 26;
-            }
-            return result;
-        }
-
-        /// <summary>
-        /// Converts an Excel column letter to a 1-based index.
-        /// A -> 1, Z -> 26, AA -> 27, etc.
-        /// </summary>
-        public static int ColumnLetterToIndex(string columnLetter)
-        {
-            int index = 0;
-            foreach (char c in columnLetter.ToUpperInvariant())
-                index = index * 26 + (c - 'A' + 1);
-            return index;
+            return 0;
         }
     }
 }
