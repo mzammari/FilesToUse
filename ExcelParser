@@ -235,7 +235,8 @@ namespace ISAS_Regression_Automation
             string searchColumn,
             string searchValue,
             string sheetName = null,
-            int headerRow = 0)
+            int headerRow = 0,
+            string keyColumn = null)
         {
             var table = ExcelHeaderDiscovery.ReadSheet(fileLocation, sheetName);
             var headers = ExcelHeaderDiscovery.GetHeaders(table, headerRow);
@@ -249,16 +250,29 @@ namespace ISAS_Regression_Automation
                 throw new KeyNotFoundException($"Search column '{searchColumn}' not found. " +
                     $"Available: {string.Join(", ", headers.Values.Select(h => h.HeaderName))}");
 
-            // Find the row key column (first column that isn't the search column and isn't in the columns list)
+            // Row key column: use keyColumn if given, otherwise the first column
+            // that isn't the search column and isn't in the columns list
             int keyColIndex = -1;
-            foreach (var h in headers.Values.OrderBy(h => h.ColumnIndex))
+            if (!string.IsNullOrWhiteSpace(keyColumn))
             {
-                bool isSearchCol = h.ColumnIndex == searchCol.ColumnIndex;
-                bool isDataCol = columns.Any(c => c.Equals(h.HeaderName, StringComparison.OrdinalIgnoreCase));
-                if (!isSearchCol && !isDataCol)
+                var keyCol = headers.Values.FirstOrDefault(h =>
+                    h.HeaderName.Equals(keyColumn, StringComparison.OrdinalIgnoreCase));
+                if (keyCol == null)
+                    throw new KeyNotFoundException($"Key column '{keyColumn}' not found. " +
+                        $"Available: {string.Join(", ", headers.Values.Select(h => h.HeaderName))}");
+                keyColIndex = keyCol.ColumnIndex;
+            }
+            else
+            {
+                foreach (var h in headers.Values.OrderBy(h => h.ColumnIndex))
                 {
-                    keyColIndex = h.ColumnIndex;
-                    break;
+                    bool isSearchCol = h.ColumnIndex == searchCol.ColumnIndex;
+                    bool isDataCol = columns.Any(c => c.Equals(h.HeaderName, StringComparison.OrdinalIgnoreCase));
+                    if (!isSearchCol && !isDataCol)
+                    {
+                        keyColIndex = h.ColumnIndex;
+                        break;
+                    }
                 }
             }
 
@@ -282,8 +296,7 @@ namespace ISAS_Regression_Automation
 
             for (int row = detectedHeaderRow + 1; row < table.Rows.Count; row++)
             {
-                string cellValue = table.Rows[row][searchCol.ColumnIndex]?.ToString()?.Trim();
-                if (!searchValue.Equals(cellValue, StringComparison.OrdinalIgnoreCase))
+                if (!CellMatches(table.Rows[row][searchCol.ColumnIndex], searchValue))
                     continue;
 
                 string rowKey = table.Rows[row][keyColIndex]?.ToString()?.Trim();
@@ -318,6 +331,131 @@ namespace ISAS_Regression_Automation
             return result;
         }
 
+        /// <summary>
+        /// Columns returned by QueryByDept when none are passed.
+        /// </summary>
+        public static readonly List<string> NonProdImpactColumns = ToList(
+            "Jan, Feb, Mar, Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec, Total, " +
+            "Forecasted Employed Productive FTE, FTE Imp.");
+
+        /// <summary>
+        /// Non-Productive % Impact Analysis report: get the rows for one department.
+        /// Each department has two rows, keyed by the NP% column ("Current" and "Historical").
+        /// Each row carries the text columns (Dept #, Dept Desc, WFT Dept Type, NP%)
+        /// and the numeric columns (Jan..Dec, Total, Forecasted Employed Productive FTE, FTE Imp.).
+        ///
+        /// Usage:
+        ///   string dept = "600";
+        ///   var data = ExcelParser.QueryByDept("NonProdImpactAnalysisExpToExl.XLS", dept);
+        ///   string desc         = data["Current"].DeptDesc;     // "TWR FLOAT"
+        ///   string type         = data["Current"].DeptType;     // "Semi-Variable"
+        ///   string np           = data["Historical"].NpType;    // "Historical"
+        ///   decimal janCurrent  = data["Current"]["Jan"];       // 84.211
+        ///   decimal fteImpact   = data["Current"]["FTE Imp."];  // 3.229
+        /// </summary>
+        public static Dictionary<string, DeptRow> QueryByDept(
+            string fileLocation,
+            string dept,
+            List<string> columns = null,
+            string sheetName = null,
+            int headerRow = 0)
+        {
+            if (string.IsNullOrWhiteSpace(dept))
+                throw new ArgumentException("Department number is required.", nameof(dept));
+
+            columns ??= NonProdImpactColumns;
+            dept = dept.Trim();
+
+            var table = ExcelHeaderDiscovery.ReadSheet(fileLocation, sheetName);
+            var headers = ExcelHeaderDiscovery.GetHeaders(table, headerRow);
+            int detectedHeaderRow = headers.Values.FirstOrDefault()?.HeaderRow ?? 0;
+
+            int ColOf(string name)
+            {
+                var h = headers.Values.FirstOrDefault(x =>
+                    x.HeaderName.Equals(name, StringComparison.OrdinalIgnoreCase));
+                if (h == null)
+                    throw new KeyNotFoundException($"Column '{name}' not found. " +
+                        $"Available: {string.Join(", ", headers.Values.Select(x => x.HeaderName))}");
+                return h.ColumnIndex;
+            }
+
+            int deptCol = ColOf("Dept #");
+            int descCol = ColOf("Dept Desc");
+            int typeCol = ColOf("WFT Dept Type");
+            int npCol   = ColOf("NP%");
+
+            var columnMap = new List<(string Name, int ColIndex)>();
+            foreach (var col in columns)
+            {
+                var info = headers.Values.FirstOrDefault(h =>
+                    h.HeaderName.Equals(col, StringComparison.OrdinalIgnoreCase));
+                if (info != null) columnMap.Add((col, info.ColumnIndex));
+                else Console.WriteLine($"Warning: Column '{col}' not found in Excel.");
+            }
+
+            string Text(int row, int col) => table.Rows[row][col]?.ToString()?.Trim() ?? "";
+
+            var result = new Dictionary<string, DeptRow>(StringComparer.OrdinalIgnoreCase);
+
+            for (int row = detectedHeaderRow + 1; row < table.Rows.Count; row++)
+            {
+                if (!CellMatches(table.Rows[row][deptCol], dept))
+                    continue;
+
+                var deptRow = new DeptRow
+                {
+                    DeptNumber = dept,
+                    DeptDesc   = Text(row, descCol),
+                    DeptType   = Text(row, typeCol),
+                    NpType     = Text(row, npCol)
+                };
+
+                foreach (var (name, colIndex) in columnMap)
+                    deptRow.Values[name] = ConvertToDecimal(table.Rows[row][colIndex]);
+
+                // Key by NP% ("Current" / "Historical"); suffix if a key repeats
+                string key = string.IsNullOrEmpty(deptRow.NpType) ? "Row" : deptRow.NpType;
+                string uniqueKey = key;
+                for (int n = 2; result.ContainsKey(uniqueKey); n++)
+                    uniqueKey = $"{key}_{n}";
+
+                result[uniqueKey] = deptRow;
+            }
+
+            if (result.Count == 0)
+                Console.WriteLine($"Warning: No rows found for Dept # '{dept}'");
+            else
+                Console.WriteLine($"Found {result.Count} rows for Dept # '{dept}'");
+
+            return result;
+        }
+
+        /// <summary>
+        /// True if the cell equals the search value. Compares as numbers when both
+        /// are numeric, so a cell stored as 600.0 matches "600".
+        /// </summary>
+        private static bool CellMatches(object cellObj, string searchValue)
+        {
+            if (cellObj == null || cellObj == DBNull.Value)
+                return false;
+
+            string cellText = cellObj.ToString().Trim();
+            if (searchValue.Equals(cellText, StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            if (decimal.TryParse(searchValue, System.Globalization.NumberStyles.Any,
+                    System.Globalization.CultureInfo.InvariantCulture, out decimal searchNum))
+            {
+                if (cellObj is double d) return (decimal)d == searchNum;
+                if (decimal.TryParse(cellText, System.Globalization.NumberStyles.Any,
+                        System.Globalization.CultureInfo.InvariantCulture, out decimal cellNum))
+                    return cellNum == searchNum;
+            }
+
+            return false;
+        }
+
         private static decimal ConvertToDecimal(object cellObj)
         {
             if (cellObj == null || cellObj == DBNull.Value)
@@ -347,6 +485,27 @@ namespace ISAS_Regression_Automation
 
             return 0m;
         }
+    }
+
+    /// <summary>
+    /// One row of the Non-Productive % Impact Analysis report.
+    /// Text columns are properties; numeric columns are in Values (or use row["Jan"]).
+    /// </summary>
+    public class DeptRow
+    {
+        public string DeptNumber { get; set; }   // Dept #
+        public string DeptDesc { get; set; }     // Dept Desc
+        public string DeptType { get; set; }     // WFT Dept Type
+        public string NpType { get; set; }       // NP% (Current / Historical)
+
+        public Dictionary<string, decimal> Values { get; } =
+            new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+
+        public decimal this[string column] => Values[column];
+
+        public override string ToString()
+            => $"{DeptNumber} | {DeptDesc} | {DeptType} | {NpType} | " +
+               string.Join(", ", Values.Select(v => $"{v.Key}={v.Value}"));
     }
 
     public class CompareResult
