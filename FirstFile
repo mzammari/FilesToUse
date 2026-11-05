@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Globalization;
-using Microsoft.Data.SqlClient;
+using System.Data.SqlClient;
 
 namespace ISAS_Regression_Automation
 {
@@ -11,8 +11,10 @@ namespace ISAS_Regression_Automation
     /// Every value is returned as the raw string SQL Server sent back - no conversion to double/decimal.
     ///
     /// Usage:
-    ///   string dept = "722";
-    ///   var months = SqlProcRunner.GetDeptMonthlyData(connStr, "dbo.usp_YourProcName", dept);
+    ///   SqlProcRunner.ConnectionString = connStr;   // set once, e.g. in [OneTimeSetUp]
+    ///
+    ///   string planId = "1234";
+    ///   var months = SqlProcRunner.GetDeptMonthlyData("dbo.usp_YourProcName", planId);
     ///
     ///   string janNp   = months["1"]["NonProductivePercent"];   // "8.763"
     ///   string janHist = months["1"]["HistNPPValue"];           // "7.026"
@@ -21,51 +23,61 @@ namespace ISAS_Regression_Automation
     public static class SqlProcRunner
     {
         /// <summary>
+        /// Connection string used by every method in this class. Set it once before calling.
+        /// </summary>
+        public static string ConnectionString { get; set; }
+
+        /// <summary>
         /// Execute a stored procedure and return the rows of one result set.
         /// resultSetIndex is 0-based: 0 = first panel, 1 = second panel.
         /// Each row is column name -> raw string value ("" for NULL).
         /// </summary>
         public static List<Dictionary<string, string>> ExecuteStoredProcedure(
-            string connectionString,
             string procName,
             Dictionary<string, object> parameters = null,
             int resultSetIndex = 1,
             int commandTimeoutSeconds = 120)
         {
-            using var conn = new SqlConnection(connectionString);
-            using var cmd = new SqlCommand(procName, conn)
-            {
-                CommandType = CommandType.StoredProcedure,
-                CommandTimeout = commandTimeoutSeconds
-            };
-
-            if (parameters != null)
-            {
-                foreach (var p in parameters)
-                {
-                    string name = p.Key.StartsWith("@") ? p.Key : "@" + p.Key;
-                    cmd.Parameters.AddWithValue(name, p.Value ?? DBNull.Value);
-                }
-            }
-
-            conn.Open();
-            using var reader = cmd.ExecuteReader();
-
-            // Skip ahead to the requested result set
-            for (int i = 0; i < resultSetIndex; i++)
-            {
-                if (!reader.NextResult())
-                    throw new InvalidOperationException(
-                        $"'{procName}' returned only {i + 1} result set(s); result set {resultSetIndex + 1} was requested.");
-            }
+            if (string.IsNullOrWhiteSpace(ConnectionString))
+                throw new InvalidOperationException(
+                    "SqlProcRunner.ConnectionString is not set. Set it before running a stored procedure.");
 
             var rows = new List<Dictionary<string, string>>();
-            while (reader.Read())
+
+            using (var conn = new SqlConnection(ConnectionString))
+            using (var cmd = new SqlCommand(procName, conn))
             {
-                var row = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                for (int col = 0; col < reader.FieldCount; col++)
-                    row[reader.GetName(col)] = RawText(reader.GetValue(col));
-                rows.Add(row);
+                cmd.CommandType = CommandType.StoredProcedure;
+                cmd.CommandTimeout = commandTimeoutSeconds;
+
+                if (parameters != null)
+                {
+                    foreach (var p in parameters)
+                    {
+                        string name = p.Key.StartsWith("@") ? p.Key : "@" + p.Key;
+                        cmd.Parameters.AddWithValue(name, p.Value ?? DBNull.Value);
+                    }
+                }
+
+                conn.Open();
+                using (var reader = cmd.ExecuteReader())
+                {
+                    // Skip ahead to the requested result set
+                    for (int i = 0; i < resultSetIndex; i++)
+                    {
+                        if (!reader.NextResult())
+                            throw new InvalidOperationException(
+                                $"'{procName}' returned only {i + 1} result set(s); result set {resultSetIndex + 1} was requested.");
+                    }
+
+                    while (reader.Read())
+                    {
+                        var row = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                        for (int col = 0; col < reader.FieldCount; col++)
+                            row[reader.GetName(col)] = RawText(reader.GetValue(col));
+                        rows.Add(row);
+                    }
+                }
             }
 
             Console.WriteLine($"'{procName}' result set {resultSetIndex + 1}: {rows.Count} row(s)");
@@ -73,34 +85,28 @@ namespace ISAS_Regression_Automation
         }
 
         /// <summary>
-        /// Run the Non-Productive procedure for one department and return the SECOND result set
+        /// Run the Non-Productive procedure for one plan and return the SECOND result set
         /// (the current dept's monthly rows), keyed by the Month column: "1" (Jan) .. "12" (Dec).
-        /// Only rows whose Number matches the dept are kept.
+        /// Change planParamName if the procedure names its parameter differently.
         /// </summary>
         public static Dictionary<string, Dictionary<string, string>> GetDeptMonthlyData(
-            string connectionString,
             string procName,
-            string dept,
-            string deptParamName = "@Dept",
-            Dictionary<string, object> otherParameters = null)
+            string planId,
+            string planParamName = "@PlanId")
         {
-            if (string.IsNullOrWhiteSpace(dept))
-                throw new ArgumentException("Department number is required.", nameof(dept));
-            dept = dept.Trim();
+            if (string.IsNullOrWhiteSpace(planId))
+                throw new ArgumentException("Plan ID is required.", nameof(planId));
 
-            var parameters = new Dictionary<string, object>(otherParameters ?? new Dictionary<string, object>())
+            var parameters = new Dictionary<string, object>
             {
-                [deptParamName] = dept
+                [planParamName] = planId.Trim()
             };
 
-            var rows = ExecuteStoredProcedure(connectionString, procName, parameters, resultSetIndex: 1);
+            var rows = ExecuteStoredProcedure(procName, parameters, resultSetIndex: 1);
 
             var byMonth = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
             foreach (var row in rows)
             {
-                if (row.TryGetValue("Number", out var number) && number != dept)
-                    continue;
-
                 string month = row.TryGetValue("Month", out var m) ? m : "";
                 string key = month;
                 for (int n = 2; byMonth.ContainsKey(key); n++)
@@ -110,7 +116,7 @@ namespace ISAS_Regression_Automation
             }
 
             if (byMonth.Count == 0)
-                Console.WriteLine($"Warning: no rows in result set 2 for Number = '{dept}'");
+                Console.WriteLine($"Warning: no rows in result set 2 for plan ID '{planId}'");
 
             return byMonth;
         }
