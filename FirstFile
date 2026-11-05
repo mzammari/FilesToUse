@@ -7,18 +7,23 @@ using System.Data.SqlClient;
 namespace ISAS_Regression_Automation
 {
     /// <summary>
-    /// Runs a SQL Server stored procedure and reads one of its result sets ("panels" in SSMS).
-    /// Every value is returned as the raw string SQL Server sent back - no conversion to double/decimal.
+    /// Runs the Non-Productive stored procedure for the plan in RunData.PlanID and reads
+    /// one of its result sets ("panels" in SSMS). Every value is returned as the raw string
+    /// SQL Server sent back - no conversion to double/decimal.
     ///
     /// Usage:
     ///   SqlProcRunner.ConnectionString = connStr;   // set once, e.g. in [OneTimeSetUp]
+    ///   RunData.PlanID = GetPlanID();               // plan ID taken from the UI
     ///
-    ///   string planId = "1234";
-    ///   var months = SqlProcRunner.GetDeptMonthlyData("dbo.usp_YourProcName", planId);
+    ///   var row = SqlProcRunner.GetDeptSummaryData("dbo.usp_YourProcName", "722");
+    ///   string name  = row["Name"];                        // "ANESTHESIA"
+    ///   string janNp = row["Jan"];                         // "8.763"
+    ///   string hvJan = row["HVJan"];                       // "8.76"
+    ///   string total = row["NonProductivePercentTotal"];   // "8.201"
     ///
-    ///   string janNp   = months["1"]["NonProductivePercent"];   // "8.763"
-    ///   string janHist = months["1"]["HistNPPValue"];           // "7.026"
-    ///   string decNp   = months["12"]["NonProductivePercent"];  // "11.817"
+    ///   // Or every dept in the first panel, keyed by dept number:
+    ///   var all = SqlProcRunner.GetAllDeptsSummaryData("dbo.usp_YourProcName");
+    ///   string fte = all["722"]["FteImpact"];              // "0.036"
     /// </summary>
     public static class SqlProcRunner
     {
@@ -28,19 +33,28 @@ namespace ISAS_Regression_Automation
         public static string ConnectionString { get; set; }
 
         /// <summary>
-        /// Execute a stored procedure and return the rows of one result set.
+        /// Name of the procedure's plan ID parameter. Change it if the procedure uses a different name.
+        /// </summary>
+        public static string PlanParamName { get; set; } = "@PlanId";
+
+        /// <summary>
+        /// Execute the stored procedure for RunData.PlanID and return the rows of one result set.
         /// resultSetIndex is 0-based: 0 = first panel, 1 = second panel.
         /// Each row is column name -> raw string value ("" for NULL).
         /// </summary>
         public static List<Dictionary<string, string>> ExecuteStoredProcedure(
             string procName,
-            Dictionary<string, object> parameters = null,
-            int resultSetIndex = 1,
+            int resultSetIndex = 0,
             int commandTimeoutSeconds = 120)
         {
             if (string.IsNullOrWhiteSpace(ConnectionString))
                 throw new InvalidOperationException(
                     "SqlProcRunner.ConnectionString is not set. Set it before running a stored procedure.");
+
+            string planId = Convert.ToString(RunData.PlanID, CultureInfo.InvariantCulture)?.Trim();
+            if (string.IsNullOrWhiteSpace(planId))
+                throw new InvalidOperationException(
+                    "RunData.PlanID is empty. Set it (RunData.PlanID = GetPlanID()) before running the procedure.");
 
             var rows = new List<Dictionary<string, string>>();
 
@@ -50,19 +64,13 @@ namespace ISAS_Regression_Automation
                 cmd.CommandType = CommandType.StoredProcedure;
                 cmd.CommandTimeout = commandTimeoutSeconds;
 
-                if (parameters != null)
-                {
-                    foreach (var p in parameters)
-                    {
-                        string name = p.Key.StartsWith("@") ? p.Key : "@" + p.Key;
-                        cmd.Parameters.AddWithValue(name, p.Value ?? DBNull.Value);
-                    }
-                }
+                // Plan ID taken from the UI via RunData.PlanID
+                cmd.Parameters.AddWithValue(PlanParamName, planId);
 
                 conn.Open();
                 using (var reader = cmd.ExecuteReader())
                 {
-                    // Skip ahead to the requested result set
+                    // Skip ahead to the requested result set (0 = first panel, no skipping)
                     for (int i = 0; i < resultSetIndex; i++)
                     {
                         if (!reader.NextResult())
@@ -80,45 +88,53 @@ namespace ISAS_Regression_Automation
                 }
             }
 
-            Console.WriteLine($"'{procName}' result set {resultSetIndex + 1}: {rows.Count} row(s)");
+            Console.WriteLine($"'{procName}' plan {planId}, result set {resultSetIndex + 1}: {rows.Count} row(s)");
             return rows;
         }
 
         /// <summary>
-        /// Run the Non-Productive procedure for one plan and return the SECOND result set
-        /// (the current dept's monthly rows), keyed by the Month column: "1" (Jan) .. "12" (Dec).
-        /// Change planParamName if the procedure names its parameter differently.
+        /// FIRST result set (one summary row per dept) for RunData.PlanID, keyed by the
+        /// Number column (dept number, e.g. "722").
+        /// Columns in each row: Number, Name, DeptType, NonProductiveHoursTotal, Jan..Dec,
+        /// ForecastEmpProdFte, FteImpact, NonProductivePercentTotal, HVJan..HVDec,
+        /// HistoricalNonProductivePercent.
         /// </summary>
-        public static Dictionary<string, Dictionary<string, string>> GetDeptMonthlyData(
-            string procName,
-            string planId,
-            string planParamName = "@PlanId")
+        public static Dictionary<string, Dictionary<string, string>> GetAllDeptsSummaryData(string procName)
         {
-            if (string.IsNullOrWhiteSpace(planId))
-                throw new ArgumentException("Plan ID is required.", nameof(planId));
+            var rows = ExecuteStoredProcedure(procName, resultSetIndex: 0);
 
-            var parameters = new Dictionary<string, object>
-            {
-                [planParamName] = planId.Trim()
-            };
-
-            var rows = ExecuteStoredProcedure(procName, parameters, resultSetIndex: 1);
-
-            var byMonth = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
+            var byDept = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
             foreach (var row in rows)
             {
-                string month = row.TryGetValue("Month", out var m) ? m : "";
-                string key = month;
-                for (int n = 2; byMonth.ContainsKey(key); n++)
-                    key = $"{month}_{n}";
+                string dept = row.TryGetValue("Number", out var d) ? d : "";
+                string key = dept;
+                for (int n = 2; byDept.ContainsKey(key); n++)
+                    key = $"{dept}_{n}";
 
-                byMonth[key] = row;
+                byDept[key] = row;
             }
 
-            if (byMonth.Count == 0)
-                Console.WriteLine($"Warning: no rows in result set 2 for plan ID '{planId}'");
+            if (byDept.Count == 0)
+                Console.WriteLine($"Warning: no rows in result set 1 for plan ID '{RunData.PlanID}'");
 
-            return byMonth;
+            return byDept;
+        }
+
+        /// <summary>
+        /// FIRST result set row for one dept (matched on the Number column), for RunData.PlanID.
+        /// </summary>
+        public static Dictionary<string, string> GetDeptSummaryData(string procName, string dept)
+        {
+            if (string.IsNullOrWhiteSpace(dept))
+                throw new ArgumentException("Department number is required.", nameof(dept));
+
+            var byDept = GetAllDeptsSummaryData(procName);
+
+            if (byDept.TryGetValue(dept.Trim(), out var row))
+                return row;
+
+            throw new KeyNotFoundException(
+                $"Dept '{dept}' not found in result set 1 for plan ID '{RunData.PlanID}' ({byDept.Count} dept(s) returned).");
         }
 
         /// <summary>
