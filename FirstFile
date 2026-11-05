@@ -1,114 +1,131 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
+using System.Data;
+using System.Globalization;
+using Microsoft.Data.SqlClient;
 
-namespace HealthTrust.LaborMetrics;
-
-/// <summary>
-/// Yearly percent-change summary. Each property is the % change from the prior
-/// value to the current value for a metric, prefixed with "PercentChange".
-///   % Change = ((Current - Previous) / Previous) * 100, rounded to 2 decimals.
-/// Previous = Prior* column, Current = current-period *Total column.
-/// </summary>
-public sealed class LaborSummaryYearlyPercentChange
+namespace ISAS_Regression_Automation
 {
-    // ---- Volume & productivity --------------------------------------------
-    public double? PercentChangeAdmissions { get; set; }
-    public double? PercentChangeAdjustedAdmissions { get; set; }
-    public double? PercentChangePatientDays { get; set; }
-    public double? PercentChangeAPD { get; set; }
-    public double? PercentChangeERVisits { get; set; }
-    public double? PercentChangeOutpatientVisits { get; set; }
-    public double? PercentChangeOPFactor { get; set; }
-    public double? PercentChangeALOS { get; set; }
-    public double? PercentChangeEEOB { get; set; }
-    public double? PercentChangeMHAA { get; set; }
-
-    // ---- Labor cost & overtime --------------------------------------------
-    public double? PercentChangeTotalSalariesAndWages { get; set; }
-    public double? PercentChangeTotalContractLabor { get; set; }
-    public double? PercentChangeTotalLaborExpense { get; set; }
-    public double? PercentChangeEmployedLaborRate { get; set; }
-    public double? PercentChangeContractLaborRate { get; set; }
-    public double? PercentChangeOvertimePremiumDollars { get; set; }
-    public double? PercentChangeOvertimePercent { get; set; }
-    public double? PercentChangeOvertimeFTEs { get; set; }
-
-    // ---- Facility FTE summary ---------------------------------------------
-    public double? PercentChangeEmployedProductiveFTEs { get; set; }
-    public double? PercentChangeContractLaborPercent { get; set; }   // previous side scaled *100
-    public double? PercentChangeContractFTEs { get; set; }
-    public double? PercentChangeTotalProductiveFTEs { get; set; }
-    public double? PercentChangeNonProductivePercent { get; set; }
-    public double? PercentChangeNonProductiveFTEs { get; set; }
-    public double? PercentChangeEmployedPaidFTEs { get; set; }
-    public double? PercentChangeTotalFTEs { get; set; }
-
-    // -----------------------------------------------------------------------
-    // Mapping: compute each % change from the row's prior & current columns.
-    // -----------------------------------------------------------------------
-
-    /// <summary>Builds a percent-change summary from one DB row.</summary>
-    public static LaborSummaryYearlyPercentChange FromLaborMetricRow(LaborMetricRow row)
-    {
-        ArgumentNullException.ThrowIfNull(row);
-
-        return new LaborSummaryYearlyPercentChange
-        {
-            // Volume & productivity          (current,                        previous)
-            PercentChangeAdmissions         = PctChange(row.Admissions,        row.PriorAdmissions),
-            PercentChangeAdjustedAdmissions = PctChange(row.AAdmissions,       row.PriorAdjustedAdmissions),
-            PercentChangePatientDays        = PctChange(row.PatientDays,       row.PriorPatientDays),
-            PercentChangeAPD                = PctChange(row.APatientDays,      row.PriorAPD),
-            PercentChangeERVisits           = PctChange(row.ERVisits,          row.PriorERVisits),
-            PercentChangeOutpatientVisits   = PctChange(row.Outpatient,        row.PriorOutpatientVisits),
-            PercentChangeOPFactor           = PctChange(row.OPFactorTotal,     row.PriorOPFactor),
-            PercentChangeALOS               = PctChange(row.ALOSTotal,         row.PriorALOS),
-            PercentChangeEEOB               = PctChange(row.EeobTotal,         row.PrioEeob),
-            PercentChangeMHAA               = PctChange(row.MhAaTotal,         row.PriorMHAA),
-
-            // Labor cost & overtime
-            PercentChangeTotalSalariesAndWages  = PctChange(row.TotalSalariesAndWagesTotal,     row.PriorTotalSalariesWages),
-            PercentChangeTotalContractLabor     = PctChange(row.TotalContractLaborDollarsTotal, row.PriorTotalContractLabor),
-            PercentChangeTotalLaborExpense      = PctChange(row.TotalLaborExpenseTotal,         row.PriorTotalLaborExpense),
-            PercentChangeEmployedLaborRate      = PctChange(row.EmployedLaborRateTotal,         row.PriorEmployedLaborRate),
-            PercentChangeContractLaborRate      = PctChange(row.ContractLaborRateTotal,         row.PriorContractLaborRate),
-            PercentChangeOvertimePremiumDollars = PctChange(row.OverTimePremiumDollarsTotal,    row.PriorOvertimePremiumDollars),
-            PercentChangeOvertimePercent        = PctChange(row.OtPercentTotal,                 row.PriorOvertimePercent),
-            PercentChangeOvertimeFTEs           = PctChange(row.OTFTEsTotal,                    row.PriorOvertimeFTEs),
-
-            // Facility FTE summary
-            PercentChangeEmployedProductiveFTEs = PctChange(row.EmployedProductiveFtesTotal, row.PriorEmployedProductiveFTEs),
-            PercentChangeContractLaborPercent   = PctChange(row.ContractPercentTotal,        row.PriorContractLaborPercent * 100),
-            PercentChangeContractFTEs           = PctChange(row.ContractFtesTotal,           row.PriorContractFTEs),
-            PercentChangeTotalProductiveFTEs    = PctChange(row.TotalProductiveFtesTotal,    row.PriorTotalProductiveFTEs),
-            PercentChangeNonProductivePercent   = PctChange(row.NonProductivePercentTotal,   row.PriorEmployedNonProductivePercent),
-            PercentChangeNonProductiveFTEs      = PctChange(row.NonProductiveFtesTotal,      row.PriorNonProductiveFTEs),
-            PercentChangeEmployedPaidFTEs       = PctChange(row.EmployedPaidFtesTotal,       row.PriorEmployedPaidFTEs),
-            PercentChangeTotalFTEs              = PctChange(row.TotalFtesTotal,              row.PriorTotalFTEsPaidContract),
-        };
-    }
-
-    /// <summary>Builds a percent-change summary for each DB row.</summary>
-    public static IReadOnlyList<LaborSummaryYearlyPercentChange> FromLaborMetricRows(
-        IEnumerable<LaborMetricRow> rows)
-    {
-        ArgumentNullException.ThrowIfNull(rows);
-        return rows.Select(FromLaborMetricRow).ToList();
-    }
-
     /// <summary>
-    /// ((current - previous) / previous) * 100, rounded to 2 decimals.
-    /// Returns null when either side is missing or the previous value is zero
-    /// (division by zero / undefined base).
+    /// Runs a SQL Server stored procedure and reads one of its result sets ("panels" in SSMS).
+    /// Every value is returned as the raw string SQL Server sent back - no conversion to double/decimal.
+    ///
+    /// Usage:
+    ///   string dept = "722";
+    ///   var months = SqlProcRunner.GetDeptMonthlyData(connStr, "dbo.usp_YourProcName", dept);
+    ///
+    ///   string janNp   = months["1"]["NonProductivePercent"];   // "8.763"
+    ///   string janHist = months["1"]["HistNPPValue"];           // "7.026"
+    ///   string decNp   = months["12"]["NonProductivePercent"];  // "11.817"
     /// </summary>
-    private static double? PctChange(double? current, double? previous)
+    public static class SqlProcRunner
     {
-        if (current is null || previous is null || previous.Value == 0.0)
-            return null;
+        /// <summary>
+        /// Execute a stored procedure and return the rows of one result set.
+        /// resultSetIndex is 0-based: 0 = first panel, 1 = second panel.
+        /// Each row is column name -> raw string value ("" for NULL).
+        /// </summary>
+        public static List<Dictionary<string, string>> ExecuteStoredProcedure(
+            string connectionString,
+            string procName,
+            Dictionary<string, object> parameters = null,
+            int resultSetIndex = 1,
+            int commandTimeoutSeconds = 120)
+        {
+            using var conn = new SqlConnection(connectionString);
+            using var cmd = new SqlCommand(procName, conn)
+            {
+                CommandType = CommandType.StoredProcedure,
+                CommandTimeout = commandTimeoutSeconds
+            };
 
-        return Math.Round(
-            (current.Value - previous.Value) / previous.Value * 100.0,
-            2, MidpointRounding.AwayFromZero);
+            if (parameters != null)
+            {
+                foreach (var p in parameters)
+                {
+                    string name = p.Key.StartsWith("@") ? p.Key : "@" + p.Key;
+                    cmd.Parameters.AddWithValue(name, p.Value ?? DBNull.Value);
+                }
+            }
+
+            conn.Open();
+            using var reader = cmd.ExecuteReader();
+
+            // Skip ahead to the requested result set
+            for (int i = 0; i < resultSetIndex; i++)
+            {
+                if (!reader.NextResult())
+                    throw new InvalidOperationException(
+                        $"'{procName}' returned only {i + 1} result set(s); result set {resultSetIndex + 1} was requested.");
+            }
+
+            var rows = new List<Dictionary<string, string>>();
+            while (reader.Read())
+            {
+                var row = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                for (int col = 0; col < reader.FieldCount; col++)
+                    row[reader.GetName(col)] = RawText(reader.GetValue(col));
+                rows.Add(row);
+            }
+
+            Console.WriteLine($"'{procName}' result set {resultSetIndex + 1}: {rows.Count} row(s)");
+            return rows;
+        }
+
+        /// <summary>
+        /// Run the Non-Productive procedure for one department and return the SECOND result set
+        /// (the current dept's monthly rows), keyed by the Month column: "1" (Jan) .. "12" (Dec).
+        /// Only rows whose Number matches the dept are kept.
+        /// </summary>
+        public static Dictionary<string, Dictionary<string, string>> GetDeptMonthlyData(
+            string connectionString,
+            string procName,
+            string dept,
+            string deptParamName = "@Dept",
+            Dictionary<string, object> otherParameters = null)
+        {
+            if (string.IsNullOrWhiteSpace(dept))
+                throw new ArgumentException("Department number is required.", nameof(dept));
+            dept = dept.Trim();
+
+            var parameters = new Dictionary<string, object>(otherParameters ?? new Dictionary<string, object>())
+            {
+                [deptParamName] = dept
+            };
+
+            var rows = ExecuteStoredProcedure(connectionString, procName, parameters, resultSetIndex: 1);
+
+            var byMonth = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var row in rows)
+            {
+                if (row.TryGetValue("Number", out var number) && number != dept)
+                    continue;
+
+                string month = row.TryGetValue("Month", out var m) ? m : "";
+                string key = month;
+                for (int n = 2; byMonth.ContainsKey(key); n++)
+                    key = $"{month}_{n}";
+
+                byMonth[key] = row;
+            }
+
+            if (byMonth.Count == 0)
+                Console.WriteLine($"Warning: no rows in result set 2 for Number = '{dept}'");
+
+            return byMonth;
+        }
+
+        /// <summary>
+        /// Value as text with no numeric conversion. Decimals keep the scale SQL Server returns
+        /// (the same digits SSMS shows); NULL becomes "".
+        /// </summary>
+        private static string RawText(object value)
+        {
+            if (value == null || value == DBNull.Value)
+                return "";
+            if (value is IFormattable f)
+                return f.ToString(null, CultureInfo.InvariantCulture).Trim();
+            return value.ToString().Trim();
+        }
     }
 }
