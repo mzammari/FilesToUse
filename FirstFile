@@ -7,23 +7,49 @@ using System.Data.SqlClient;
 namespace ISAS_Regression_Automation
 {
     /// <summary>
-    /// Runs the Non-Productive stored procedure for the plan in RunData.PlanID and reads
-    /// one of its result sets ("panels" in SSMS). Every value is returned as the raw string
-    /// SQL Server sent back - no conversion to double/decimal.
+    /// Both panels of the Non-Productive stored procedure for one dept.
+    /// Every value is the raw string SQL Server sent back ("" for NULL).
+    /// </summary>
+    public class DeptProcData
+    {
+        /// <summary>
+        /// FIRST panel row for the dept: Number, Name, DeptType, NonProductiveHoursTotal, Jan..Dec,
+        /// ForecastEmpProdFte, FteImpact, NonProductivePercentTotal, HVJan..HVDec,
+        /// HistoricalNonProductivePercent.
+        /// </summary>
+        public Dictionary<string, string> Summary { get; set; }
+
+        /// <summary>
+        /// SECOND panel rows for the dept, keyed by Month ("1" = Jan .. "12" = Dec): Number, Name,
+        /// DeptType, Month, NonProductivePercent, HistoricalDepartmentTotalUos, HistoricalValue,
+        /// HistNPPValue, NonProductiveHoursTotal, TotalProductiveFtesTotal, TotalProductiveHoursTotal,
+        /// ContractLaborHoursTotal, ContractLaborFtesTotal, NonProductivePercentTotal,
+        /// HistoricalPaidHours, HistoricalProductiveHours.
+        /// </summary>
+        public Dictionary<string, Dictionary<string, string>> Monthly { get; set; }
+    }
+
+    /// <summary>
+    /// Runs the Non-Productive stored procedure for the plan in RunData.PlanID and reads its
+    /// result sets ("panels" in SSMS). Every value is returned as the raw string SQL Server
+    /// sent back - no conversion to double/decimal.
     ///
     /// Usage:
     ///   SqlProcRunner.ConnectionString = connStr;   // set once, e.g. in [OneTimeSetUp]
     ///   RunData.PlanID = GetPlanID();               // plan ID taken from the UI
     ///
-    ///   var row = SqlProcRunner.GetDeptSummaryData("dbo.usp_YourProcName", "722");
-    ///   string name  = row["Name"];                        // "ANESTHESIA"
-    ///   string janNp = row["Jan"];                         // "8.763"
-    ///   string hvJan = row["HVJan"];                       // "8.76"
-    ///   string total = row["NonProductivePercentTotal"];   // "8.201"
+    ///   var data = SqlProcRunner.GetDeptData("dbo.usp_YourProcName", "722");
     ///
-    ///   // Or every dept in the first panel, keyed by dept number:
-    ///   var all = SqlProcRunner.GetAllDeptsSummaryData("dbo.usp_YourProcName");
-    ///   string fte = all["722"]["FteImpact"];              // "0.036"
+    ///   // First panel (searched by dept)
+    ///   string name  = data.Summary["Name"];                        // "ANESTHESIA"
+    ///   string jan   = data.Summary["Jan"];                         // "8.763"
+    ///   string hvJan = data.Summary["HVJan"];                       // "8.76"
+    ///   string fte   = data.Summary["FteImpact"];                   // "0.036"
+    ///
+    ///   // Second panel (all rows for the dept, by month)
+    ///   string janNp   = data.Monthly["1"]["NonProductivePercent"]; // "8.763"
+    ///   string janHist = data.Monthly["1"]["HistNPPValue"];         // "7.026"
+    ///   string decPaid = data.Monthly["12"]["HistoricalPaidHours"]; // "1853"
     /// </summary>
     public static class SqlProcRunner
     {
@@ -38,13 +64,66 @@ namespace ISAS_Regression_Automation
         public static string PlanParamName { get; set; } = "@PlanId";
 
         /// <summary>
-        /// Execute the stored procedure for RunData.PlanID and return the rows of one result set.
-        /// resultSetIndex is 0-based: 0 = first panel, 1 = second panel.
+        /// Run the procedure ONCE for RunData.PlanID and return both panels for one dept:
+        /// the first-panel row whose Number = dept, and the second-panel rows for that dept by month.
+        /// </summary>
+        public static DeptProcData GetDeptData(string procName, string dept)
+        {
+            if (string.IsNullOrWhiteSpace(dept))
+                throw new ArgumentException("Department number is required.", nameof(dept));
+
+            dept = dept.Trim();
+            var resultSets = ExecuteStoredProcedureAllResultSets(procName);
+
+            if (resultSets.Count < 2)
+                throw new InvalidOperationException(
+                    $"'{procName}' returned {resultSets.Count} result set(s); 2 were expected.");
+
+            // ---- First panel: search by dept ----
+            Dictionary<string, string> summary = null;
+            foreach (var row in resultSets[0])
+            {
+                if (row.TryGetValue("Number", out var num) && dept.Equals(num, StringComparison.OrdinalIgnoreCase))
+                {
+                    summary = row;
+                    break;
+                }
+            }
+
+            if (summary == null)
+                throw new KeyNotFoundException(
+                    $"Dept '{dept}' not found in result set 1 for plan ID '{RunData.PlanID}' " +
+                    $"({resultSets[0].Count} row(s) returned).");
+
+            // ---- Second panel: all rows for the dept, keyed by Month ----
+            var monthly = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var row in resultSets[1])
+            {
+                // Skip rows for other depts, in case the second panel ever holds more than one
+                if (row.TryGetValue("Number", out var num) && !dept.Equals(num, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                string month = row.TryGetValue("Month", out var m) ? m : "";
+                string key = month;
+                for (int n = 2; monthly.ContainsKey(key); n++)
+                    key = $"{month}_{n}";
+
+                monthly[key] = row;
+            }
+
+            if (monthly.Count == 0)
+                Console.WriteLine($"Warning: no rows for dept '{dept}' in result set 2 for plan ID '{RunData.PlanID}'");
+
+            return new DeptProcData { Summary = summary, Monthly = monthly };
+        }
+
+        /// <summary>
+        /// Execute the stored procedure ONCE for RunData.PlanID and return every result set.
+        /// resultSets[0] = first panel, resultSets[1] = second panel, ...
         /// Each row is column name -> raw string value ("" for NULL).
         /// </summary>
-        public static List<Dictionary<string, string>> ExecuteStoredProcedure(
+        public static List<List<Dictionary<string, string>>> ExecuteStoredProcedureAllResultSets(
             string procName,
-            int resultSetIndex = 0,
             int commandTimeoutSeconds = 120)
         {
             if (string.IsNullOrWhiteSpace(ConnectionString))
@@ -56,7 +135,7 @@ namespace ISAS_Regression_Automation
                 throw new InvalidOperationException(
                     "RunData.PlanID is empty. Set it (RunData.PlanID = GetPlanID()) before running the procedure.");
 
-            var rows = new List<Dictionary<string, string>>();
+            var resultSets = new List<List<Dictionary<string, string>>>();
 
             using (var conn = new SqlConnection(ConnectionString))
             using (var cmd = new SqlCommand(procName, conn))
@@ -70,71 +149,26 @@ namespace ISAS_Regression_Automation
                 conn.Open();
                 using (var reader = cmd.ExecuteReader())
                 {
-                    // Skip ahead to the requested result set (0 = first panel, no skipping)
-                    for (int i = 0; i < resultSetIndex; i++)
+                    do
                     {
-                        if (!reader.NextResult())
-                            throw new InvalidOperationException(
-                                $"'{procName}' returned only {i + 1} result set(s); result set {resultSetIndex + 1} was requested.");
+                        var rows = new List<Dictionary<string, string>>();
+                        while (reader.Read())
+                        {
+                            var row = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                            for (int col = 0; col < reader.FieldCount; col++)
+                                row[reader.GetName(col)] = RawText(reader.GetValue(col));
+                            rows.Add(row);
+                        }
+                        resultSets.Add(rows);
                     }
-
-                    while (reader.Read())
-                    {
-                        var row = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                        for (int col = 0; col < reader.FieldCount; col++)
-                            row[reader.GetName(col)] = RawText(reader.GetValue(col));
-                        rows.Add(row);
-                    }
+                    while (reader.NextResult());   // move to the next panel
                 }
             }
 
-            Console.WriteLine($"'{procName}' plan {planId}, result set {resultSetIndex + 1}: {rows.Count} row(s)");
-            return rows;
-        }
+            for (int i = 0; i < resultSets.Count; i++)
+                Console.WriteLine($"'{procName}' plan {planId}, result set {i + 1}: {resultSets[i].Count} row(s)");
 
-        /// <summary>
-        /// FIRST result set (one summary row per dept) for RunData.PlanID, keyed by the
-        /// Number column (dept number, e.g. "722").
-        /// Columns in each row: Number, Name, DeptType, NonProductiveHoursTotal, Jan..Dec,
-        /// ForecastEmpProdFte, FteImpact, NonProductivePercentTotal, HVJan..HVDec,
-        /// HistoricalNonProductivePercent.
-        /// </summary>
-        public static Dictionary<string, Dictionary<string, string>> GetAllDeptsSummaryData(string procName)
-        {
-            var rows = ExecuteStoredProcedure(procName, resultSetIndex: 0);
-
-            var byDept = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
-            foreach (var row in rows)
-            {
-                string dept = row.TryGetValue("Number", out var d) ? d : "";
-                string key = dept;
-                for (int n = 2; byDept.ContainsKey(key); n++)
-                    key = $"{dept}_{n}";
-
-                byDept[key] = row;
-            }
-
-            if (byDept.Count == 0)
-                Console.WriteLine($"Warning: no rows in result set 1 for plan ID '{RunData.PlanID}'");
-
-            return byDept;
-        }
-
-        /// <summary>
-        /// FIRST result set row for one dept (matched on the Number column), for RunData.PlanID.
-        /// </summary>
-        public static Dictionary<string, string> GetDeptSummaryData(string procName, string dept)
-        {
-            if (string.IsNullOrWhiteSpace(dept))
-                throw new ArgumentException("Department number is required.", nameof(dept));
-
-            var byDept = GetAllDeptsSummaryData(procName);
-
-            if (byDept.TryGetValue(dept.Trim(), out var row))
-                return row;
-
-            throw new KeyNotFoundException(
-                $"Dept '{dept}' not found in result set 1 for plan ID '{RunData.PlanID}' ({byDept.Count} dept(s) returned).");
+            return resultSets;
         }
 
         /// <summary>
