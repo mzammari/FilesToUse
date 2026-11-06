@@ -1,0 +1,51 @@
+Report: NonProdImpactAnalysis,
+rpt_GetNonProdImpact,
+,
+UI Field,DataSet Field
+Dept #,Number
+Dept Desc,Name
+WFT Dept Type,DeptType
+NP%,Static
+Jan,Jan
+Feb,Feb
+Mar,Mar
+Apr,Apr
+May,May
+Jun,Jun
+Jul,Jul
+Aug,Aug
+Sep,Sep
+Oct,Oct
+Nov,Nov
+Dec,Dec
+Total,NonProductivePercentTotal
+Forecasted Employed Productive FTE,ForecastEmpProdFte
+FTE Impact,FteImpact
+Dept #,Number
+Dept Desc,Name
+WFT Dept Type,DeptType
+NP%,Static
+Jan,HVJan
+Feb,HVFeb
+Mar,HVMar
+Apr,HVApr
+May,HVMay
+Jun,HVJun
+Jul,HVJul
+Aug,HVAug
+Sep,HVSep
+Oct,HVOct
+Nov,HVNov
+Dec,HVDec
+Total,HistoricalNonProductivePercent
+Forecasted Employed Productive FTE,N/A
+FTE Impact,N/A
+,
+,
+,
+,
+,
+,
+Formula Text,
+(Productive FTEs - CL FTEs),
+(Forecasted Productive Hours - CL Hours) - (Forecasted Productive Hours - CL Hours) * (NP% Forcasted),
