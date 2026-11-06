@@ -10,7 +10,7 @@ namespace ISAS_Regression_Automation
     /// Both panels of the Non-Productive stored procedure for one dept.
     /// Every value is the raw string SQL Server sent back ("" for NULL).
     /// </summary>
-    public class DeptProcData
+    public class SqlProcRunner
     {
         /// <summary>
         /// FIRST panel row for the dept: Number, Name, DeptType, NonProductiveHoursTotal, Jan..Dec,
