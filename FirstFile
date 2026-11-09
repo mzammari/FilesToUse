@@ -1,3 +1,8 @@
+var results = ExcelDbComparer.Compare(excelData, dbData.Summary);
+ExcelDbComparer.PrintResults(results);
+Assert.True(results.TrueForAll(r => r.Match), "Non-Prod report: Excel vs DB mismatch - see output");
+
+
 using System;
 using System.Collections.Generic;
 using System.Globalization;
