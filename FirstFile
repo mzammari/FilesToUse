@@ -111,6 +111,24 @@ namespace ISAS_Regression_Automation
             return results;
         }
 
+        /// <summary>
+        /// Compare data you already have:
+        ///   excelRows = ExcelParser.QueryByDept(filePath, dept)   (both rows, keyed "Current" / "Historical")
+        ///   dbSummary = SqlProcRunner.GetDeptData(spName, dept).Summary
+        /// </summary>
+        public static List<FieldCompareResult> Compare(
+            Dictionary<string, Dictionary<string, string>> excelRows,
+            Dictionary<string, string> dbSummary)
+        {
+            string dept = dbSummary.TryGetValue("Number", out var n) ? n : "";
+            var results = new List<FieldCompareResult>();
+
+            results.AddRange(CompareRow("Current", GetExcelRow(excelRows, "Current", dept), dbSummary, CurrentMap));
+            results.AddRange(CompareRow("Historical", GetExcelRow(excelRows, "Historical", dept), dbSummary, HistoricalMap));
+
+            return results;
+        }
+
         private static Dictionary<string, string> GetExcelRow(
             Dictionary<string, Dictionary<string, string>> excelRows,
             string npType,
