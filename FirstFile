@@ -102,13 +102,26 @@ namespace ISAS_Regression_Automation
         {
             var results = new List<FieldCompareResult>();
 
-            var excelCurrent = ExcelParser.QueryByDept(excelFile, dept, npType: "Current");
-            results.AddRange(CompareRow("Current", excelCurrent, dbSummary, CurrentMap));
+            // Both Excel rows for the dept, keyed by NP% ("Current" / "Historical")
+            var excelRows = ExcelParser.QueryByDept(excelFile, dept);
 
-            var excelHistorical = ExcelParser.QueryByDept(excelFile, dept, npType: "Historical");
-            results.AddRange(CompareRow("Historical", excelHistorical, dbSummary, HistoricalMap));
+            results.AddRange(CompareRow("Current", GetExcelRow(excelRows, "Current", dept), dbSummary, CurrentMap));
+            results.AddRange(CompareRow("Historical", GetExcelRow(excelRows, "Historical", dept), dbSummary, HistoricalMap));
 
             return results;
+        }
+
+        private static Dictionary<string, string> GetExcelRow(
+            Dictionary<string, Dictionary<string, string>> excelRows,
+            string npType,
+            string dept)
+        {
+            if (excelRows.TryGetValue(npType, out var row))
+                return row;
+
+            throw new KeyNotFoundException(
+                $"No '{npType}' row for Dept # '{dept}' in the Excel file. " +
+                $"Available: {(excelRows.Count == 0 ? "none" : string.Join(", ", excelRows.Keys))}");
         }
 
         /// <summary>
