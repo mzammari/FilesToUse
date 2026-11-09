@@ -1,187 +1,228 @@
 using System;
 using System.Collections.Generic;
-using System.Data;
 using System.Globalization;
-using System.Data.SqlClient;
 
 namespace ISAS_Regression_Automation
 {
-    /// <summary>
-    /// Both panels of the Non-Productive stored procedure for one dept.
-    /// Every value is the raw string SQL Server sent back ("" for NULL).
-    /// </summary>
-    public class DeptProcData
+    /// <summary>One compared field: UI (Excel) value vs DB value.</summary>
+    public class FieldCompareResult
     {
-        /// <summary>
-        /// FIRST panel row for the dept: Number, Name, DeptType, NonProductiveHoursTotal, Jan..Dec,
-        /// ForecastEmpProdFte, FteImpact, NonProductivePercentTotal, HVJan..HVDec,
-        /// HistoricalNonProductivePercent.
-        /// </summary>
-        public Dictionary<string, string> Summary { get; set; }
+        public string NpType { get; set; }      // "Current" or "Historical"
+        public string UiField { get; set; }     // Excel column, e.g. "Jan"
+        public string DbField { get; set; }     // DB column, e.g. "HVJan" (or "Static")
+        public string ExcelValue { get; set; }
+        public string DbValue { get; set; }
+        public bool Match { get; set; }
 
-        /// <summary>
-        /// SECOND panel rows for the dept, keyed by Month ("1" = Jan .. "12" = Dec): Number, Name,
-        /// DeptType, Month, NonProductivePercent, HistoricalDepartmentTotalUos, HistoricalValue,
-        /// HistNPPValue, NonProductiveHoursTotal, TotalProductiveFtesTotal, TotalProductiveHoursTotal,
-        /// ContractLaborHoursTotal, ContractLaborFtesTotal, NonProductivePercentTotal,
-        /// HistoricalPaidHours, HistoricalProductiveHours.
-        /// </summary>
-        public Dictionary<string, Dictionary<string, string>> Monthly { get; set; }
+        public override string ToString()
+            => $"{NpType,-10} {UiField,-36} {DbField,-32} '{ExcelValue}' vs '{DbValue}' -> {(Match ? "PASS" : "FAIL")}";
     }
 
     /// <summary>
-    /// Runs the Non-Productive stored procedure for the plan in RunData.PlanID and reads its
-    /// result sets ("panels" in SSMS). Every value is returned as the raw string SQL Server
-    /// sent back - no conversion to double/decimal.
+    /// Compares the Excel export (UI) against the stored procedure's first panel (DB)
+    /// using the UI Field -> DataSet Field mapping.
     ///
     /// Usage:
-    ///   SqlProcRunner.ConnectionString = connStr;   // set once, e.g. in [OneTimeSetUp]
-    ///   RunData.PlanID = GetPlanID();               // plan ID taken from the UI
+    ///   RunData.PlanID = GetPlanID();
+    ///   string dept = "722";
     ///
-    ///   var data = SqlProcRunner.GetDeptData("dbo.usp_YourProcName", "722");
+    ///   var db      = SqlProcRunner.GetDeptData("dbo.usp_YourProcName", dept);
+    ///   var results = ExcelDbComparer.CompareDept(excelFile, dept, db.Summary);
     ///
-    ///   // First panel (searched by dept)
-    ///   string name  = data.Summary["Name"];                        // "ANESTHESIA"
-    ///   string jan   = data.Summary["Jan"];                         // "8.763"
-    ///   string hvJan = data.Summary["HVJan"];                       // "8.76"
-    ///   string fte   = data.Summary["FteImpact"];                   // "0.036"
-    ///
-    ///   // Second panel (all rows for the dept, by month)
-    ///   string janNp   = data.Monthly["1"]["NonProductivePercent"]; // "8.763"
-    ///   string janHist = data.Monthly["1"]["HistNPPValue"];         // "7.026"
-    ///   string decPaid = data.Monthly["12"]["HistoricalPaidHours"]; // "1853"
+    ///   ExcelDbComparer.PrintResults(results);
+    ///   Assert.That(results.TrueForAll(r => r.Match), "Excel vs DB mismatch - see output");
     /// </summary>
-    public static class SqlProcRunner
+    public static class ExcelDbComparer
     {
-        /// <summary>
-        /// Connection string used by every method in this class. Set it once before calling.
-        /// </summary>
-        public static string ConnectionString { get; set; }
+        /// <summary>Marks a UI field whose expected value is the NP% row name, not a DB column.</summary>
+        public const string Static = "Static";
 
-        /// <summary>
-        /// Name of the procedure's plan ID parameter. Change it if the procedure uses a different name.
-        /// </summary>
-        public static string PlanParamName { get; set; } = "@PlanId";
-
-        /// <summary>
-        /// Run the procedure ONCE for RunData.PlanID and return both panels for one dept:
-        /// the first-panel row whose Number = dept, and the second-panel rows for that dept by month.
-        /// </summary>
-        public static DeptProcData GetDeptData(string procName, string dept)
+        /// <summary>UI Field -> DataSet Field for the Current row.</summary>
+        public static readonly List<KeyValuePair<string, string>> CurrentMap = new List<KeyValuePair<string, string>>
         {
-            if (string.IsNullOrWhiteSpace(dept))
-                throw new ArgumentException("Department number is required.", nameof(dept));
+            Map("Dept #",                             "Number"),
+            Map("Dept Desc",                          "Name"),
+            Map("WFT Dept Type",                      "DeptType"),
+            Map("NP%",                                Static),
+            Map("Jan",                                "Jan"),
+            Map("Feb",                                "Feb"),
+            Map("Mar",                                "Mar"),
+            Map("Apr",                                "Apr"),
+            Map("May",                                "May"),
+            Map("Jun",                                "Jun"),
+            Map("Jul",                                "Jul"),
+            Map("Aug",                                "Aug"),
+            Map("Sep",                                "Sep"),
+            Map("Oct",                                "Oct"),
+            Map("Nov",                                "Nov"),
+            Map("Dec",                                "Dec"),
+            Map("Total",                              "NonProductivePercentTotal"),
+            Map("Forecasted Employed Productive FTE", "ForecastEmpProdFte"),
+            Map("FTE Impact",                         "FteImpact"),
+        };
 
-            dept = dept.Trim();
-            var resultSets = ExecuteStoredProcedureAllResultSets(procName);
+        /// <summary>UI Field -> DataSet Field for the Historical row.</summary>
+        public static readonly List<KeyValuePair<string, string>> HistoricalMap = new List<KeyValuePair<string, string>>
+        {
+            Map("Dept #",        "Number"),
+            Map("Dept Desc",     "Name"),
+            Map("WFT Dept Type", "DeptType"),
+            Map("NP%",           Static),
+            Map("Jan",           "HVJan"),
+            Map("Feb",           "HVFeb"),
+            Map("Mar",           "HVMar"),
+            Map("Apr",           "HVApr"),
+            Map("May",           "HVMay"),
+            Map("Jun",           "HVJun"),
+            Map("Jul",           "HVJul"),
+            Map("Aug",           "HVAug"),
+            Map("Sep",           "HVSep"),
+            Map("Oct",           "HVOct"),
+            Map("Nov",           "HVNov"),
+            Map("Dec",           "HVDec"),
+            Map("Total",         "HistoricalNonProductivePercent"),
+        };
 
-            if (resultSets.Count < 2)
-                throw new InvalidOperationException(
-                    $"'{procName}' returned {resultSets.Count} result set(s); 2 were expected.");
-
-            // ---- First panel: search by dept ----
-            Dictionary<string, string> summary = null;
-            foreach (var row in resultSets[0])
+        /// <summary>
+        /// The Excel export abbreviates some headers. UI field name -> Excel column header.
+        /// </summary>
+        private static readonly Dictionary<string, string> ExcelHeaderAliases =
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
-                if (row.TryGetValue("Number", out var num) && dept.Equals(num, StringComparison.OrdinalIgnoreCase))
+                ["FTE Impact"] = "FTE Imp."
+            };
+
+        /// <summary>
+        /// Compare both Excel rows (Current and Historical) for one dept against the DB first-panel row.
+        /// </summary>
+        public static List<FieldCompareResult> CompareDept(
+            string excelFile,
+            string dept,
+            Dictionary<string, string> dbSummary)
+        {
+            var results = new List<FieldCompareResult>();
+
+            var excelCurrent = ExcelParser.QueryByDept(excelFile, dept, npType: "Current");
+            results.AddRange(CompareRow("Current", excelCurrent, dbSummary, CurrentMap));
+
+            var excelHistorical = ExcelParser.QueryByDept(excelFile, dept, npType: "Historical");
+            results.AddRange(CompareRow("Historical", excelHistorical, dbSummary, HistoricalMap));
+
+            return results;
+        }
+
+        /// <summary>
+        /// Compare one Excel row against the DB row using a mapping.
+        /// Values stay raw strings. Two numbers are compared as exact decimals (never double),
+        /// so "84.21" and "84.210" match. Anything else must match as text.
+        /// </summary>
+        public static List<FieldCompareResult> CompareRow(
+            string npType,
+            Dictionary<string, string> excelRow,
+            Dictionary<string, string> dbRow,
+            List<KeyValuePair<string, string>> map)
+        {
+            var results = new List<FieldCompareResult>();
+
+            foreach (var m in map)
+            {
+                string uiField = m.Key;
+                string dbField = m.Value;
+
+                string excelValue = GetExcelValue(excelRow, uiField);
+
+                string dbValue;
+                if (dbField.Equals(Static, StringComparison.OrdinalIgnoreCase))
+                    dbValue = npType;   // NP% is "Current" / "Historical", not a DB column
+                else if (dbRow.TryGetValue(dbField, out var v))
+                    dbValue = v ?? "";
+                else
+                    dbValue = "(column missing in DB)";
+
+                results.Add(new FieldCompareResult
                 {
-                    summary = row;
-                    break;
-                }
+                    NpType = npType,
+                    UiField = uiField,
+                    DbField = dbField,
+                    ExcelValue = excelValue,
+                    DbValue = dbValue,
+                    Match = uiField.Equals("WFT Dept Type", StringComparison.OrdinalIgnoreCase)
+                        ? DeptTypeMatches(excelValue, dbValue)
+                        : ValuesMatch(excelValue, dbValue)
+                });
             }
 
-            if (summary == null)
-                throw new KeyNotFoundException(
-                    $"Dept '{dept}' not found in result set 1 for plan ID '{RunData.PlanID}' " +
-                    $"({resultSets[0].Count} row(s) returned).");
+            return results;
+        }
 
-            // ---- Second panel: all rows for the dept, keyed by Month ----
-            var monthly = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
-            foreach (var row in resultSets[1])
+        public static void PrintResults(List<FieldCompareResult> results)
+        {
+            Console.WriteLine($"{"NP%",-10} {"UI Field",-36} {"DB Field",-32} {"Excel",-14} {"DB",-14} Result");
+            Console.WriteLine(new string('-', 118));
+
+            int passed = 0;
+            foreach (var r in results)
             {
-                // Skip rows for other depts, in case the second panel ever holds more than one
-                if (row.TryGetValue("Number", out var num) && !dept.Equals(num, StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                string month = row.TryGetValue("Month", out var m) ? m : "";
-                string key = month;
-                for (int n = 2; monthly.ContainsKey(key); n++)
-                    key = $"{month}_{n}";
-
-                monthly[key] = row;
+                if (r.Match) passed++;
+                Console.WriteLine($"{r.NpType,-10} {r.UiField,-36} {r.DbField,-32} {"'" + r.ExcelValue + "'",-14} {"'" + r.DbValue + "'",-14} {(r.Match ? "PASS" : "FAIL")}");
             }
 
-            if (monthly.Count == 0)
-                Console.WriteLine($"Warning: no rows for dept '{dept}' in result set 2 for plan ID '{RunData.PlanID}'");
+            Console.WriteLine(new string('-', 118));
+            Console.WriteLine($"Total: {results.Count} | Passed: {passed} | Failed: {results.Count - passed}");
+        }
 
-            return new DeptProcData { Summary = summary, Monthly = monthly };
+        private static string GetExcelValue(Dictionary<string, string> excelRow, string uiField)
+        {
+            if (excelRow.TryGetValue(uiField, out var value))
+                return value ?? "";
+
+            if (ExcelHeaderAliases.TryGetValue(uiField, out var header) &&
+                excelRow.TryGetValue(header, out value))
+                return value ?? "";
+
+            return "(column missing in Excel)";
         }
 
         /// <summary>
-        /// Execute the stored procedure ONCE for RunData.PlanID and return every result set.
-        /// resultSets[0] = first panel, resultSets[1] = second panel, ...
-        /// Each row is column name -> raw string value ("" for NULL).
+        /// WFT Dept Type: the DB can hold a combined value like "Variable/Semi-Variable",
+        /// and the Excel shows either one. Passes if the Excel value equals the whole DB value
+        /// or any one of its "/"-separated parts.
+        ///   Excel "Variable"      vs DB "Variable/Semi-Variable" -> PASS
+        ///   Excel "Semi-Variable" vs DB "Variable/Semi-Variable" -> PASS
+        ///   Excel "Fixed"         vs DB "Variable/Semi-Variable" -> FAIL
         /// </summary>
-        public static List<List<Dictionary<string, string>>> ExecuteStoredProcedureAllResultSets(
-            string procName,
-            int commandTimeoutSeconds = 120)
+        private static bool DeptTypeMatches(string excelValue, string dbValue)
         {
-            if (string.IsNullOrWhiteSpace(ConnectionString))
-                throw new InvalidOperationException(
-                    "SqlProcRunner.ConnectionString is not set. Set it before running a stored procedure.");
+            string excel = (excelValue ?? "").Trim();
+            string db = (dbValue ?? "").Trim();
 
-            string planId = Convert.ToString(RunData.PlanID, CultureInfo.InvariantCulture)?.Trim();
-            if (string.IsNullOrWhiteSpace(planId))
-                throw new InvalidOperationException(
-                    "RunData.PlanID is empty. Set it (RunData.PlanID = GetPlanID()) before running the procedure.");
+            if (excel.Equals(db, StringComparison.OrdinalIgnoreCase))
+                return true;
 
-            var resultSets = new List<List<Dictionary<string, string>>>();
-
-            using (var conn = new SqlConnection(ConnectionString))
-            using (var cmd = new SqlCommand(procName, conn))
+            foreach (var part in db.Split('/'))
             {
-                cmd.CommandType = CommandType.StoredProcedure;
-                cmd.CommandTimeout = commandTimeoutSeconds;
-
-                // Plan ID taken from the UI via RunData.PlanID
-                cmd.Parameters.AddWithValue(PlanParamName, planId);
-
-                conn.Open();
-                using (var reader = cmd.ExecuteReader())
-                {
-                    do
-                    {
-                        var rows = new List<Dictionary<string, string>>();
-                        while (reader.Read())
-                        {
-                            var row = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                            for (int col = 0; col < reader.FieldCount; col++)
-                                row[reader.GetName(col)] = RawText(reader.GetValue(col));
-                            rows.Add(row);
-                        }
-                        resultSets.Add(rows);
-                    }
-                    while (reader.NextResult());   // move to the next panel
-                }
+                if (excel.Equals(part.Trim(), StringComparison.OrdinalIgnoreCase))
+                    return true;
             }
 
-            for (int i = 0; i < resultSets.Count; i++)
-                Console.WriteLine($"'{procName}' plan {planId}, result set {i + 1}: {resultSets[i].Count} row(s)");
-
-            return resultSets;
+            return false;
         }
 
-        /// <summary>
-        /// Value as text with no numeric conversion. Decimals keep the scale SQL Server returns
-        /// (the same digits SSMS shows); NULL becomes "".
-        /// </summary>
-        private static string RawText(object value)
+        private static bool ValuesMatch(string a, string b)
         {
-            if (value == null || value == DBNull.Value)
-                return "";
-            if (value is IFormattable f)
-                return f.ToString(null, CultureInfo.InvariantCulture).Trim();
-            return value.ToString().Trim();
+            a = (a ?? "").Trim();
+            b = (b ?? "").Trim();
+
+            if (a.Equals(b, StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            var inv = CultureInfo.InvariantCulture;
+            return decimal.TryParse(a, NumberStyles.Number, inv, out var da)
+                && decimal.TryParse(b, NumberStyles.Number, inv, out var db)
+                && da == db;
         }
+
+        private static KeyValuePair<string, string> Map(string uiField, string dbField)
+            => new KeyValuePair<string, string>(uiField, dbField);
     }
 }
