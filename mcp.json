@@ -1,0 +1,8 @@
+{
+  "servers": {
+    "playwright-platform": {
+      "type": "http",
+      "url": "https://playwright-mcp-hca-zqt-dev-blu.np.k8s.medcity.net/mcp"
+    }
+  }
+}
