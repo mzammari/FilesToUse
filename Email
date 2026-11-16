@@ -1,0 +1,17 @@
+Subject: Unified QA Agent scope v0.3: my thoughts before I share
+
+Hi Sir, hi Vishal,
+
+I added you to the Unified QA Agent scope thread for visibility, since you brought me into this effort.
+
+It’s a strong document, and Phase 1 is already in final testing. Based on my RAG and MCP proof of concept, I drafted a few suggestions for the next version (attached):
+
+Source citations for every recommendation
+An evaluation framework that tests the agent before each change
+Protection against prompt injection
+A PHI detection step before any model use
+
+Before I share anything with the team, I’d appreciate your guidance on timing and the best way to bring it to them.
+
+Thanks,
+Muhammed
