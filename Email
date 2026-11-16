@@ -1,17 +1,56 @@
-Subject: Unified QA Agent scope v0.3: my thoughts before I share
+FYI...
 
-Hi Sir, hi Vishal,
 
-I added you to the Unified QA Agent scope thread for visibility, since you brought me into this effort.
+________________________________________
+From: Gupta Shruti - Hyderabad <shrutisharan.gupta@hcahealthcare.com>
+Sent: Monday, November 16, 2026 6:45 AM
+To: Scott Lisa - Nashville <Lisa.Sexton@Parallon.com>; Cannon Nathan <Nathan.Cannon@HCAhealthcare.com>; Hart Christopher - Nashville <Chris.Hart@hcahealthcare.com>; Tallapragada Avinash <Avinash.Tallpragada@hcahealthcare.com>; Smith Sir <SirOsei.Smith@Healthtrustpg.com>; Anderson Cynthia - Brentwood <Cynthia.Anderson1@hcahealthcare.com>; Ridinger Jason <Jason.Ridinger@hcahealthcare.com>; Vo John - Nashville <John.Vo1@hcahealthcare.com>; Ambati Kasi Viswanada Reddy <Kasi.Ambati@HCAHealthcare.com>; Bharti Anirudh - Hyderabad <anirudh.bharti@hcahealthcare.com>; Wade Tim <Timothy.Wade@hcahealthcare.com>
+Cc: Kakade Sagar <Sagar.Kakade@hcahealthcare.com>; Patil Kapil <Kapil.Patil@HCAHealthcare.com>; Tatavarthy Ravi <Ravi.Tatavarthy@HCAHealthcare.com>
+Subject: Re: QA Automation Engineering 
 
-It’s a strong document, and Phase 1 is already in final testing. Based on my RAG and MCP proof of concept, I drafted a few suggestions for the next version (attached):
-
-Source citations for every recommendation
-An evaluation framework that tests the agent before each change
-Protection against prompt injection
-A PHI detection step before any model use
-
-Before I share anything with the team, I’d appreciate your guidance on timing and the best way to bring it to them.
+Hi Nathan,
+Thanks a lot for recognizing the team's work and for the opportunity to contribute to the broader QA Agent initiative. We appreciate your support and are excited to collaborate on this effort.
+I also wanted to share some recent progress we've made with our Playwright Platform and MCP Service:
+•	Test Plan Management: Introduced support for creating test plans, as well as adding to and updating existing test plans.
+•	Test Suite Management: Added capabilities to organize and manage test suites, enabling a more structured approach to test creation and execution.
+•	Simplified Playwright MCP Integration: Streamlined the process of using Playwright MCP through VS Code into a single-step setup using the attached mcp.json configuration, making adoption much easier for teams.
+These enhancements provide a strong foundation for moving toward an agent-driven QA framework.
+@Scott Lisa - Nashville, we would appreciate your guidance and support in taking this initiative forward. Specifically, we'd like to align on the next steps for establishing the QA Agent, initially focusing on Greenfield, integrating with Kapil's ADLC framework, and collaborating with internal SMEs and Tim Wade to define QA standards, agent instructions, and required skills.
+We welcome the opportunity to participate in the ongoing planning discussions and identify where our existing Playwright Platform and MCP capabilities can accelerate the broader initiative.
+Looking forward to collaborating and building this momentum.
+Link : https://playwright-mcp-hca-zqt-dev-blu.np.k8s.medcity.net/
+ 
 
 Thanks,
-Muhammed
+
+
+
+________________________________________
+From: Scott Lisa - Nashville <Lisa.Sexton@Parallon.com>
+Sent: Wednesday, November 4, 2026 9:52 PM
+To: Cannon Nathan <Nathan.Cannon@HCAhealthcare.com>; Hart Christopher - Nashville <Chris.Hart@hcahealthcare.com>; Tallapragada Avinash <Avinash.Tallpragada@hcahealthcare.com>; Smith Sir <SirOsei.Smith@Healthtrustpg.com>; Anderson Cynthia - Brentwood <Cynthia.Anderson1@hcahealthcare.com>; Ridinger Jason <Jason.Ridinger@hcahealthcare.com>; Vo John - Nashville <John.Vo1@hcahealthcare.com>; Ambati Kasi Viswanada Reddy <Kasi.Ambati@HCAHealthcare.com>; Gupta Shruti - Hyderabad <shrutisharan.gupta@hcahealthcare.com>; Bharti Anirudh - Hyderabad <anirudh.bharti@hcahealthcare.com>; Wade Tim <Timothy.Wade@hcahealthcare.com>
+Cc: Kakade Sagar <Sagar.Kakade@hcahealthcare.com>; Patil Kapil <Kapil.Patil@HCAHealthcare.com>; Tatavarthy Ravi <Ravi.Tatavarthy@HCAHealthcare.com>
+Subject: Re: QA Automation Engineering
+
+Will do.  Thank you.
+________________________________________
+From: Cannon Nathan <Nathan.Cannon@HCAhealthcare.com>
+Sent: Wednesday, November 4, 2026 8:20 AM
+To: Hart Christopher - Nashville <Chris.Hart@hcahealthcare.com>; Tallapragada Avinash <Avinash.Tallpragada@hcahealthcare.com>; Smith Sir <SirOsei.Smith@Healthtrustpg.com>; Anderson Cynthia - Brentwood <Cynthia.Anderson1@hcahealthcare.com>; Ridinger Jason <Jason.Ridinger@hcahealthcare.com>; Vo John - Nashville <John.Vo1@hcahealthcare.com>; Ambati Kasi Viswanada Reddy <Kasi.Ambati@HCAHealthcare.com>; Gupta Shruti - Hyderabad <shrutisharan.gupta@hcahealthcare.com>; Bharti Anirudh - Hyderabad <anirudh.bharti@hcahealthcare.com>; Wade Tim <Timothy.Wade@hcahealthcare.com>
+Cc: Scott Lisa - Nashville <Lisa.Sexton@Parallon.com>; Kakade Sagar <Sagar.Kakade@hcahealthcare.com>; Patil Kapil <Kapil.Patil@HCAHealthcare.com>; Tatavarthy Ravi <Ravi.Tatavarthy@HCAHealthcare.com>
+Subject: Re: QA Automation Engineering
+ 
+Team,
+
+I met with our GCN team ( Kasi Ambati ) this morning to see a demo of Playwright capabilities.  I have used this functionality before and I am impressed with how they are leveraging it.  I would like to bring Kasi’s team into helping us 
+
+1.	 Establish an QA Agent
+2.	Initially focused on Greenfield
+3.	Integrating with Kapil ADLC framework
+4.	Work with our internal SME’s to define instructions that the agent needs to respect for QA standards for test creation and execution
+5.	Work with Tim Wade to understand what Skills are needed of the agent.
+
+Per our conversation on Monday , as you work to organize the resources and find the correct intersection of common needs, please including Kasi’s team in those conversations.  
+
+-Nathan
+
