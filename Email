@@ -1,172 +1,42 @@
-using System;
-using System.Collections.Generic;
-using System.Data;
-using System.Globalization;
-using System.Linq;
-
-namespace ISAS_Regression_Automation
+/// <summary>
+/// Waits for a downloaded file whose name contains the given text and returns its full path.
+/// </summary>
+/// <param name="fileNamePart">Part of the file name to look for (e.g. "PayrollReport").</param>
+/// <param name="timeoutSeconds">Maximum seconds to wait before throwing. Default is 60.</param>
+/// <returns>Full path to the newest matching file once it exists and is non-empty.</returns>
+/// <exception cref="FileNotFoundException">Thrown when no matching file is found within the timeout.</exception>
+public static string GetDownloadedFile(string fileNamePart, int timeoutSeconds = 60)
 {
-    /// <summary>
-    /// Reads the Legacy Contract Manhours report (LegacyContractManhoursReport_*.xls) and
-    /// returns one department's row, found by Dept#.
-    ///
-    /// Layout (first sheet, header on the first row, one row per dept):
-    ///   Year, Plan, CoId, Description, Dept#, DeptDescription, Category,
-    ///   ContractManhours_Jan .. ContractManhours_Dec
-    ///
-    /// NO ROUNDING: every value comes back as the raw text of the cell. Numbers are written
-    /// in their shortest exact form (241.9759 stays "241.9759", 0 stays "0"), and nothing is
-    /// converted to double or decimal. Blank cells come back as "".
-    ///
-    /// Usage:
-    ///   var row = LegacyContractManhoursExcel.QueryByDept(file, "603");
-    ///   string desc = row["DeptDescription"];        // "RN ORIENT"
-    ///   string jan  = row["ContractManhours_Jan"];   // "241.9759"
-    ///
-    ///   // Only the 12 months, keyed "Jan".."Dec":
-    ///   var months = LegacyContractManhoursExcel.GetMonths(file, "603");
-    ///   string dec = months["Dec"];                  // "90.88332"
-    /// </summary>
-    public static class LegacyContractManhoursExcel
+    string downloadDirectory = Environment.GetEnvironmentVariable("TEST_DOWNLOAD_DIR");
+
+    if (string.IsNullOrWhiteSpace(downloadDirectory))
     {
-        public const string DeptColumn = "Dept#";
-
-        /// <summary>All 19 headers in the report, in sheet order.</summary>
-        public static readonly string[] Headers =
-        {
-            "Year", "Plan", "CoId", "Description", "Dept#", "DeptDescription", "Category",
-            "ContractManhours_Jan", "ContractManhours_Feb", "ContractManhours_Mar",
-            "ContractManhours_Apr", "ContractManhours_May", "ContractManhours_Jun",
-            "ContractManhours_Jul", "ContractManhours_Aug", "ContractManhours_Sep",
-            "ContractManhours_Oct", "ContractManhours_Nov", "ContractManhours_Dec"
-        };
-
-        public static readonly string[] MonthNames =
-            { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
-
-        /// <summary>
-        /// The row for one department. Each column name maps to the cell's raw text.
-        /// Pass columns to get only some of them; null returns every column in sheet order.
-        /// Throws if the dept isn't in the file, so a wrong dept fails the test loudly.
-        /// </summary>
-        public static Dictionary<string, string> QueryByDept(
-            string fileLocation,
-            string dept,
-            List<string> columns = null,
-            string sheetName = null,
-            int headerRow = 0)
-        {
-            if (string.IsNullOrWhiteSpace(dept))
-                throw new ArgumentException("Department number is required.", nameof(dept));
-
-            dept = dept.Trim();
-
-            var table = ExcelHeaderDiscovery.ReadSheet(fileLocation, sheetName);
-            var headers = ExcelHeaderDiscovery.GetHeaders(table, headerRow);
-            int detectedHeaderRow = headers.Values.FirstOrDefault()?.HeaderRow ?? 0;
-
-            var deptHeader = headers.Values.FirstOrDefault(h =>
-                h.HeaderName.Trim().Equals(DeptColumn, StringComparison.OrdinalIgnoreCase));
-            if (deptHeader == null)
-                throw new KeyNotFoundException($"Column '{DeptColumn}' not found. " +
-                    $"Available: {string.Join(", ", headers.Values.Select(h => h.HeaderName))}");
-            int deptCol = deptHeader.ColumnIndex;
-
-            // Columns to return: the requested ones, or every header in sheet order
-            var columnMap = new List<(string Name, int ColIndex)>();
-            if (columns == null)
-            {
-                foreach (var h in headers.Values.OrderBy(h => h.ColumnIndex))
-                    columnMap.Add((h.HeaderName.Trim(), h.ColumnIndex));
-            }
-            else
-            {
-                foreach (var col in columns)
-                {
-                    var info = headers.Values.FirstOrDefault(h =>
-                        h.HeaderName.Trim().Equals(col.Trim(), StringComparison.OrdinalIgnoreCase));
-                    if (info != null) columnMap.Add((col.Trim(), info.ColumnIndex));
-                    else Console.WriteLine($"Warning: Column '{col}' not found in Excel.");
-                }
-            }
-
-            Dictionary<string, string> found = null;
-            int matches = 0;
-
-            for (int row = detectedHeaderRow + 1; row < table.Rows.Count; row++)
-            {
-                if (!SameDept(dept, RawText(table.Rows[row][deptCol])))
-                    continue;
-
-                matches++;
-                if (found != null) continue;   // keep the first match, but count duplicates
-
-                found = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                foreach (var (name, colIndex) in columnMap)
-                    found[name] = RawText(table.Rows[row][colIndex]);
-            }
-
-            if (found == null)
-                throw new KeyNotFoundException($"Dept# '{dept}' not found in '{fileLocation}'.");
-
-            if (matches > 1)
-                Console.WriteLine($"Warning: {matches} rows for Dept# '{dept}'; using the first.");
-
-            return found;
-        }
-
-        /// <summary>
-        /// Only the 12 ContractManhours_* values for one dept, keyed "Jan".."Dec".
-        /// Raw strings, no rounding.
-        /// </summary>
-        public static Dictionary<string, string> GetMonths(
-            string fileLocation,
-            string dept,
-            string sheetName = null,
-            int headerRow = 0)
-        {
-            var cols = MonthNames.Select(m => "ContractManhours_" + m).ToList();
-            var row = QueryByDept(fileLocation, dept, cols, sheetName, headerRow);
-
-            var months = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var m in MonthNames)
-                months[m] = row.TryGetValue("ContractManhours_" + m, out var v) ? v : "";
-            return months;
-        }
-
-        /// <summary>
-        /// Dept match. Text match first; if both sides are numbers, compare them as exact
-        /// decimals, so "600" matches a cell that reads back as "600.0" or "600".
-        /// </summary>
-        private static bool SameDept(string wanted, string cell)
-        {
-            cell = (cell ?? "").Trim();
-            if (wanted.Equals(cell, StringComparison.OrdinalIgnoreCase))
-                return true;
-
-            return decimal.TryParse(wanted, NumberStyles.Number, CultureInfo.InvariantCulture, out var a)
-                && decimal.TryParse(cell, NumberStyles.Number, CultureInfo.InvariantCulture, out var b)
-                && a == b;
-        }
-
-        /// <summary>
-        /// The cell as text, with no rounding. A number is written in its shortest exact form
-        /// ("R" round-trip), so every stored digit is kept and no ".0" is added to whole numbers.
-        /// </summary>
-        private static string RawText(object value)
-        {
-            if (value == null || value == DBNull.Value) return "";
-
-            switch (value)
-            {
-                case double d:    return d.ToString("R", CultureInfo.InvariantCulture);
-                case float f:     return f.ToString("R", CultureInfo.InvariantCulture);
-                case decimal m:   return m.ToString(CultureInfo.InvariantCulture);
-                case int i:       return i.ToString(CultureInfo.InvariantCulture);
-                case long l:      return l.ToString(CultureInfo.InvariantCulture);
-                case DateTime dt: return dt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
-                default:          return value.ToString();
-            }
-        }
+        downloadDirectory = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            "Downloads");
     }
+
+    // Temp extensions browsers use while a download is still in progress
+    string[] partialExtensions = { ".crdownload", ".part", ".tmp", ".download" };
+
+    var stopwatch = Stopwatch.StartNew();
+
+    while (stopwatch.Elapsed.TotalSeconds < timeoutSeconds)
+    {
+        var match = new DirectoryInfo(downloadDirectory)
+            .EnumerateFiles()
+            .Where(f => f.Name.Contains(fileNamePart, StringComparison.OrdinalIgnoreCase))
+            .Where(f => !partialExtensions.Contains(f.Extension, StringComparer.OrdinalIgnoreCase))
+            .Where(f => f.Length > 0)
+            .OrderByDescending(f => f.LastWriteTime)
+            .FirstOrDefault();
+
+        if (match != null)
+            return match.FullName;
+
+        Thread.Sleep(1000);
+    }
+
+    throw new FileNotFoundException(
+        $"No file containing '{fileNamePart}' was found in '{downloadDirectory}' within {timeoutSeconds} seconds.");
 }
