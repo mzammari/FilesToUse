@@ -1,42 +1,8 @@
-/// <summary>
-/// Waits for a downloaded file whose name contains the given text and returns its full path.
-/// </summary>
-/// <param name="fileNamePart">Part of the file name to look for (e.g. "PayrollReport").</param>
-/// <param name="timeoutSeconds">Maximum seconds to wait before throwing. Default is 60.</param>
-/// <returns>Full path to the newest matching file once it exists and is non-empty.</returns>
-/// <exception cref="FileNotFoundException">Thrown when no matching file is found within the timeout.</exception>
-public static string GetDownloadedFile(string fileNamePart, int timeoutSeconds = 60)
 {
-    string downloadDirectory = Environment.GetEnvironmentVariable("TEST_DOWNLOAD_DIR");
-
-    if (string.IsNullOrWhiteSpace(downloadDirectory))
-    {
-        downloadDirectory = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            "Downloads");
+  "servers": {
+    "playwright-platform": {
+      "type": "http",
+      "url": "https://playwright-mcp-hca-zqt-dev-blu.np.k8s.medcity.net/mcp"
     }
-
-    // Temp extensions browsers use while a download is still in progress
-    string[] partialExtensions = { ".crdownload", ".part", ".tmp", ".download" };
-
-    var stopwatch = Stopwatch.StartNew();
-
-    while (stopwatch.Elapsed.TotalSeconds < timeoutSeconds)
-    {
-        var match = new DirectoryInfo(downloadDirectory)
-            .EnumerateFiles()
-            .Where(f => f.Name.Contains(fileNamePart, StringComparison.OrdinalIgnoreCase))
-            .Where(f => !partialExtensions.Contains(f.Extension, StringComparer.OrdinalIgnoreCase))
-            .Where(f => f.Length > 0)
-            .OrderByDescending(f => f.LastWriteTime)
-            .FirstOrDefault();
-
-        if (match != null)
-            return match.FullName;
-
-        Thread.Sleep(1000);
-    }
-
-    throw new FileNotFoundException(
-        $"No file containing '{fileNamePart}' was found in '{downloadDirectory}' within {timeoutSeconds} seconds.");
+  }
 }
