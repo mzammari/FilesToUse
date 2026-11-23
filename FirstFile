@@ -1,259 +1,123 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 
 namespace ISAS_Regression_Automation
 {
-    /// <summary>One compared field: UI (Excel) value vs DB value.</summary>
-    public class FieldCompareResult
+    /// <summary>One Excel field checked against the DB (DB is the source of truth).</summary>
+    public class ManhoursCompareResult
     {
-        public string NpType { get; set; }      // "Current" or "Historical"
-        public string UiField { get; set; }     // Excel column, e.g. "Jan"
-        public string DbField { get; set; }     // DB column, e.g. "HVJan" (or "Static")
+        public string Dept { get; set; }
+        public string ExcelColumn { get; set; }
+        public string DbColumn { get; set; }
         public string ExcelValue { get; set; }
         public string DbValue { get; set; }
         public bool Match { get; set; }
 
-        public override string ToString()
-            => $"{NpType,-10} {UiField,-36} {DbField,-32} '{ExcelValue}' vs '{DbValue}' -> {(Match ? "PASS" : "FAIL")}";
+        public override string ToString() =>
+            $"{(Match ? "PASS" : "FAIL")}  Dept {Dept}  {ExcelColumn,-22} Excel='{ExcelValue}'  DB({DbColumn})='{DbValue}'";
     }
 
     /// <summary>
-    /// Compares the Excel export (UI) against the stored procedure's first panel (DB)
-    /// using the UI Field -> DataSet Field mapping.
+    /// Compares the Legacy Contract Manhours Excel row for a dept against the DB's 12 rows.
+    ///
+    /// NO ROUNDING. Two numbers are compared as exact decimals (never double), so
+    /// "241.9759" matches "241.97590" and "0" matches "0.00000", but "241.9759" does NOT
+    /// match "241.97591". Anything non-numeric must match as text (case-insensitive).
     ///
     /// Usage:
-    ///   RunData.PlanID = GetPlanID();
-    ///   string dept = "722";
-    ///
-    ///   var db      = SqlProcRunner.GetDeptData("dbo.usp_YourProcName", dept);
-    ///   var results = ExcelDbComparer.CompareDept(excelFile, dept, db.Summary);
-    ///
-    ///   ExcelDbComparer.PrintResults(results);
-    ///   Assert.That(results.TrueForAll(r => r.Match), "Excel vs DB mismatch - see output");
+    ///   LegacyContractManhoursDb.ConnectionString = "...";
+    ///   var results = LegacyContractManhoursComparer.CompareDept(excelFile, query, "600");
+    ///   results.ForEach(Console.WriteLine);
+    ///   Assert.That(results.Where(r => !r.Match), Is.Empty);
     /// </summary>
-    public static class ExcelDbComparer
+    public static class LegacyContractManhoursComparer
     {
-        /// <summary>Marks a UI field whose expected value is the NP% row name, not a DB column.</summary>
-        public const string Static = "Static";
+        /// <summary>Excel header -> DB column (months come from FldVal by ColName).</summary>
+        public static readonly List<KeyValuePair<string, string>> FieldMap = BuildMap();
 
-        /// <summary>UI Field -> DataSet Field for the Current row.</summary>
-        public static readonly List<KeyValuePair<string, string>> CurrentMap = new List<KeyValuePair<string, string>>
+        private static List<KeyValuePair<string, string>> BuildMap()
         {
-            Map("Dept #",                             "Number"),
-            Map("Dept Desc",                          "Name"),
-            Map("WFT Dept Type",                      "DeptType"),
-            Map("NP%",                                Static),
-            Map("Jan",                                "Jan"),
-            Map("Feb",                                "Feb"),
-            Map("Mar",                                "Mar"),
-            Map("Apr",                                "Apr"),
-            Map("May",                                "May"),
-            Map("Jun",                                "Jun"),
-            Map("Jul",                                "Jul"),
-            Map("Aug",                                "Aug"),
-            Map("Sep",                                "Sep"),
-            Map("Oct",                                "Oct"),
-            Map("Nov",                                "Nov"),
-            Map("Dec",                                "Dec"),
-            Map("Total",                              "NonProductivePercentTotal"),
-            Map("Forecasted Employed Productive FTE", "ForecastEmpProdFte"),
-            Map("FTE Impact",                         "FteImpact"),
-        };
-
-        /// <summary>UI Field -> DataSet Field for the Historical row.</summary>
-        public static readonly List<KeyValuePair<string, string>> HistoricalMap = new List<KeyValuePair<string, string>>
-        {
-            Map("Dept #",        "Number"),
-            Map("Dept Desc",     "Name"),
-            Map("WFT Dept Type", "DeptType"),
-            Map("NP%",           Static),
-            Map("Jan",           "HVJan"),
-            Map("Feb",           "HVFeb"),
-            Map("Mar",           "HVMar"),
-            Map("Apr",           "HVApr"),
-            Map("May",           "HVMay"),
-            Map("Jun",           "HVJun"),
-            Map("Jul",           "HVJul"),
-            Map("Aug",           "HVAug"),
-            Map("Sep",           "HVSep"),
-            Map("Oct",           "HVOct"),
-            Map("Nov",           "HVNov"),
-            Map("Dec",           "HVDec"),
-            Map("Total",         "HistoricalNonProductivePercent"),
-        };
-
-        /// <summary>
-        /// The Excel export abbreviates some headers. UI field name -> Excel column header.
-        /// </summary>
-        private static readonly Dictionary<string, string> ExcelHeaderAliases =
-            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            var map = new List<KeyValuePair<string, string>>
             {
-                ["FTE Impact"] = "FTE Imp."
+                new("Year",            "Year"),
+                new("Plan",            "Plan"),
+                new("CoId",            "CoId"),
+                new("Description",     "Description"),
+                new("Dept#",           "Dept"),
+                new("DeptDescription", "DeptDescription"),
+                new("Category",        "DeptType"),
             };
+            foreach (var m in LegacyContractManhoursExcel.MonthNames)
+                map.Add(new("ContractManhours_" + m, "FldVal (ColName=ContractManhours_" + m + ")"));
+            return map;
+        }
 
-        /// <summary>
-        /// Compare both Excel rows (Current and Historical) for one dept against the DB first-panel row.
-        /// </summary>
-        public static List<FieldCompareResult> CompareDept(
+        /// <summary>Compare one dept: Excel row vs. the DB's 12 rows. Returns every field, pass or fail.</summary>
+        public static List<ManhoursCompareResult> CompareDept(
             string excelFile,
+            string query,
             string dept,
-            Dictionary<string, string> dbSummary)
+            IDictionary<string, object> parameters = null)
         {
-            var results = new List<FieldCompareResult>();
+            var excelRow = LegacyContractManhoursExcel.QueryByDept(excelFile, dept);
+            var dbRows   = LegacyContractManhoursDb.GetDeptMonths(query, dept, parameters);
+            var dbRow    = LegacyContractManhoursDb.ToExcelRow(dbRows);
 
-            // Both Excel rows for the dept, keyed by NP% ("Current" / "Historical")
-            var excelRows = ExcelParser.QueryByDept(excelFile, dept);
-
-            results.AddRange(CompareRow("Current", GetExcelRow(excelRows, "Current", dept), dbSummary, CurrentMap));
-            results.AddRange(CompareRow("Historical", GetExcelRow(excelRows, "Historical", dept), dbSummary, HistoricalMap));
-
-            return results;
+            return CompareRow(dept, excelRow, dbRow);
         }
 
-        /// <summary>
-        /// Compare data you already have:
-        ///   excelRows = ExcelParser.QueryByDept(filePath, dept)   (both rows, keyed "Current" / "Historical")
-        ///   dbSummary = SqlProcRunner.GetDeptData(spName, dept).Summary
-        /// </summary>
-        public static List<FieldCompareResult> Compare(
-            Dictionary<string, Dictionary<string, string>> excelRows,
-            Dictionary<string, string> dbSummary)
-        {
-            string dept = dbSummary.TryGetValue("Number", out var n) ? n : "";
-            var results = new List<FieldCompareResult>();
-
-            results.AddRange(CompareRow("Current", GetExcelRow(excelRows, "Current", dept), dbSummary, CurrentMap));
-            results.AddRange(CompareRow("Historical", GetExcelRow(excelRows, "Historical", dept), dbSummary, HistoricalMap));
-
-            return results;
-        }
-
-        private static Dictionary<string, string> GetExcelRow(
-            Dictionary<string, Dictionary<string, string>> excelRows,
-            string npType,
-            string dept)
-        {
-            if (excelRows.TryGetValue(npType, out var row))
-                return row;
-
-            throw new KeyNotFoundException(
-                $"No '{npType}' row for Dept # '{dept}' in the Excel file. " +
-                $"Available: {(excelRows.Count == 0 ? "none" : string.Join(", ", excelRows.Keys))}");
-        }
-
-        /// <summary>
-        /// Compare one Excel row against the DB row using a mapping.
-        /// Values stay raw strings. Two numbers are compared as exact decimals (never double),
-        /// so "84.21" and "84.210" match. Anything else must match as text.
-        /// </summary>
-        public static List<FieldCompareResult> CompareRow(
-            string npType,
+        /// <summary>Compare an Excel row and a DB row that are already keyed by Excel headers.</summary>
+        public static List<ManhoursCompareResult> CompareRow(
+            string dept,
             Dictionary<string, string> excelRow,
-            Dictionary<string, string> dbRow,
-            List<KeyValuePair<string, string>> map)
+            Dictionary<string, string> dbRow)
         {
-            var results = new List<FieldCompareResult>();
+            var results = new List<ManhoursCompareResult>();
 
-            foreach (var m in map)
+            foreach (var kv in FieldMap)
             {
-                string uiField = m.Key;
-                string dbField = m.Value;
+                bool inExcel = excelRow.TryGetValue(kv.Key, out var excelVal);
+                bool inDb    = dbRow.TryGetValue(kv.Key, out var dbVal);
 
-                string excelValue = GetExcelValue(excelRow, uiField);
-
-                string dbValue;
-                if (dbField.Equals(Static, StringComparison.OrdinalIgnoreCase))
-                    dbValue = npType;   // NP% is "Current" / "Historical", not a DB column
-                else if (dbRow.TryGetValue(dbField, out var v))
-                    dbValue = v ?? "";
-                else
-                    dbValue = "(column missing in DB)";
-
-                results.Add(new FieldCompareResult
+                results.Add(new ManhoursCompareResult
                 {
-                    NpType = npType,
-                    UiField = uiField,
-                    DbField = dbField,
-                    ExcelValue = excelValue,
-                    DbValue = dbValue,
-                    Match = uiField.Equals("WFT Dept Type", StringComparison.OrdinalIgnoreCase)
-                        ? DeptTypeMatches(excelValue, dbValue)
-                        : ValuesMatch(excelValue, dbValue)
+                    Dept        = dept,
+                    ExcelColumn = kv.Key,
+                    DbColumn    = kv.Value,
+                    ExcelValue  = inExcel ? excelVal : "<missing in Excel>",
+                    DbValue     = inDb    ? dbVal    : "<missing in DB>",
+                    Match       = inExcel && inDb && ValuesMatch(kv.Key, excelVal, dbVal)
                 });
             }
 
             return results;
         }
 
-        public static void PrintResults(List<FieldCompareResult> results)
-        {
-            Console.WriteLine($"{"NP%",-10} {"UI Field",-36} {"DB Field",-32} {"Excel",-14} {"DB",-14} Result");
-            Console.WriteLine(new string('-', 118));
-
-            int passed = 0;
-            foreach (var r in results)
-            {
-                if (r.Match) passed++;
-                Console.WriteLine($"{r.NpType,-10} {r.UiField,-36} {r.DbField,-32} {"'" + r.ExcelValue + "'",-14} {"'" + r.DbValue + "'",-14} {(r.Match ? "PASS" : "FAIL")}");
-            }
-
-            Console.WriteLine(new string('-', 118));
-            Console.WriteLine($"Total: {results.Count} | Passed: {passed} | Failed: {results.Count - passed}");
-        }
-
-        private static string GetExcelValue(Dictionary<string, string> excelRow, string uiField)
-        {
-            if (excelRow.TryGetValue(uiField, out var value))
-                return value ?? "";
-
-            if (ExcelHeaderAliases.TryGetValue(uiField, out var header) &&
-                excelRow.TryGetValue(header, out value))
-                return value ?? "";
-
-            return "(column missing in Excel)";
-        }
-
         /// <summary>
-        /// WFT Dept Type: the DB can hold a combined value like "Variable/Semi-Variable",
-        /// and the Excel shows either one. Passes if the Excel value equals the whole DB value
-        /// or any one of its "/"-separated parts.
-        ///   Excel "Variable"      vs DB "Variable/Semi-Variable" -> PASS
-        ///   Excel "Semi-Variable" vs DB "Variable/Semi-Variable" -> PASS
-        ///   Excel "Fixed"         vs DB "Variable/Semi-Variable" -> FAIL
+        /// Exact match, no rounding. Numbers compare as decimals; text compares case-insensitively.
+        /// Category also matches when the Excel value equals one "/" part of the DB DeptType
+        /// (same rule as the Non-Productive comparer).
         /// </summary>
-        private static bool DeptTypeMatches(string excelValue, string dbValue)
+        public static bool ValuesMatch(string excelColumn, string excelVal, string dbVal)
         {
-            string excel = (excelValue ?? "").Trim();
-            string db = (dbValue ?? "").Trim();
+            excelVal = (excelVal ?? "").Trim();
+            dbVal    = (dbVal ?? "").Trim();
 
-            if (excel.Equals(db, StringComparison.OrdinalIgnoreCase))
+            if (TryDec(excelVal, out var a) && TryDec(dbVal, out var b))
+                return a == b;
+
+            if (excelVal.Equals(dbVal, StringComparison.OrdinalIgnoreCase))
                 return true;
 
-            foreach (var part in db.Split('/'))
-            {
-                if (excel.Equals(part.Trim(), StringComparison.OrdinalIgnoreCase))
-                    return true;
-            }
+            if (excelColumn.Equals("Category", StringComparison.OrdinalIgnoreCase))
+                return dbVal.Split('/').Any(p => p.Trim().Equals(excelVal, StringComparison.OrdinalIgnoreCase));
 
             return false;
         }
 
-        private static bool ValuesMatch(string a, string b)
-        {
-            a = (a ?? "").Trim();
-            b = (b ?? "").Trim();
-
-            if (a.Equals(b, StringComparison.OrdinalIgnoreCase))
-                return true;
-
-            var inv = CultureInfo.InvariantCulture;
-            return decimal.TryParse(a, NumberStyles.Number, inv, out var da)
-                && decimal.TryParse(b, NumberStyles.Number, inv, out var db)
-                && da == db;
-        }
-
-        private static KeyValuePair<string, string> Map(string uiField, string dbField)
-            => new KeyValuePair<string, string>(uiField, dbField);
+        private static bool TryDec(string s, out decimal d) =>
+            decimal.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out d);
     }
 }
