@@ -1,3 +1,15 @@
+[TestCase("600")]
+public void ContractManhours_ExcelMatchesDb(string dept)
+{
+    var excelRow = LegacyContractManhoursExcel.QueryByDept(ExcelFile, dept);
+    var dbRows   = LegacyContractManhoursDb.GetDeptMonths(Query, dept);
+    var results  = LegacyContractManhoursComparer.CompareRow(dept, excelRow, dbRows);
+
+    Assert.That(results.Where(r => !r.Match), Is.Empty, string.Join(Environment.NewLine, results));
+}
+
+
+
 using System;
 using System.Collections.Generic;
 using System.Globalization;
