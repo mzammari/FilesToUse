@@ -1,486 +1,183 @@
 using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Data.SqlClient;
+using System.Globalization;
 using System.Linq;
 
 namespace ISAS_Regression_Automation
 {
     /// <summary>
-    /// Parses an Excel file (.xls or .xlsx) into a nested dictionary.
-    /// 
+    /// Runs the Legacy Contract Manhours query you pass in and returns the 12 monthly rows
+    /// (Month 1..12) for one department.
+    ///
+    /// DB columns: Year, Plan, CoId, Description, Dept, DeptDescription, DeptType,
+    ///             Month, DispOrder, ColName, FldVal
+    ///
+    /// NO ROUNDING: every value is the raw string SQL Server sent back ("" for NULL).
+    /// FldVal stays as the DB has it, e.g. "0.00000" or "241.97590".
+    ///
     /// Usage:
-    ///   var metrics = ExcelParser.ToList("Employed (Productive) FTEs:, Contract FTEs, Total Productive FTEs");
-    ///   var columns = ExcelParser.ToList("Jan, Feb, Mar, Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec, Total");
-    ///   
-    ///   var report = ExcelParser.ParseExcel("Report.xls", metrics, columns);
-    ///   
-    ///   double jan = report["Employed (Productive) FTEs:"]["Jan"];
-    ///   double total = report["Contract FTEs"]["Total"];
+    ///   LegacyContractManhoursDb.ConnectionString = "...";   // set once in test setup
+    ///   var rows = LegacyContractManhoursDb.GetDeptMonths(query, "600");
+    ///   rows[0]["Month"]    // "1"
+    ///   rows[0]["ColName"]  // "ContractManhours_Jan"
+    ///   rows[0]["FldVal"]   // "0.00000"
     /// </summary>
-    public class ExcelParser
+    public static class LegacyContractManhoursDb
     {
+        /// <summary>Set once during test setup (same pattern as SqlProcRunner.ConnectionString).</summary>
+        public static string ConnectionString { get; set; }
+
+        public const string DeptColumn  = "Dept";
+        public const string MonthColumn = "Month";
+
         /// <summary>
-        /// Parse Excel (.xls or .xlsx) into Dictionary&lt;metricName, Dictionary&lt;columnName, value&gt;&gt;.
+        /// Every row the query returns, each as column name -> raw string.
+        /// Pass parameters only if your query uses them (e.g. "@PlanId").
         /// </summary>
-        public static Dictionary<string, Dictionary<string, double>> ParseExcel(
-            string fileLocation,
-            List<string> metrics,
-            List<string> columns,
-            string dataType = "double",
-            string sheetName = null,
-            int headerRow = 0)
+        public static List<Dictionary<string, string>> RunQuery(
+            string query,
+            IDictionary<string, object> parameters = null,
+            int timeoutSeconds = 120)
         {
-            // Read the sheet into a DataTable (works for .xls and .xlsx)
-            var table = ExcelHeaderDiscovery.ReadSheet(fileLocation, sheetName);
+            if (string.IsNullOrWhiteSpace(ConnectionString))
+                throw new InvalidOperationException(
+                    "LegacyContractManhoursDb.ConnectionString is not set.");
+            if (string.IsNullOrWhiteSpace(query))
+                throw new ArgumentException("Query is required.", nameof(query));
 
-            // Discover headers and their positions
-            var headers = ExcelHeaderDiscovery.GetHeaders(table, headerRow);
-            int detectedHeaderRow = headers.Values.FirstOrDefault()?.HeaderRow ?? 0;
+            var rows = new List<Dictionary<string, string>>();
 
-            // Find the key column (where metric names live)
-            int keyColIndex = FindKeyColumn(table, detectedHeaderRow, metrics);
-
-            // Map requested columns to their DataTable positions
-            var columnMap = new List<(string Name, int ColIndex)>();
-            foreach (var col in columns)
+            using var conn = new SqlConnection(ConnectionString);
+            using var cmd = new SqlCommand(query, conn)
             {
-                var colInfo = headers.Values.FirstOrDefault(h =>
-                    h.HeaderName.Equals(col, StringComparison.OrdinalIgnoreCase));
+                CommandType = CommandType.Text,
+                CommandTimeout = timeoutSeconds
+            };
 
-                if (colInfo != null)
-                    columnMap.Add((col, colInfo.ColumnIndex));
-                else
-                    Console.WriteLine($"Warning: Column '{col}' not found in Excel.");
-            }
-
-            // Build the result
-            var result = new Dictionary<string, Dictionary<string, double>>(StringComparer.OrdinalIgnoreCase);
-
-            // Scan rows and match metrics
-            var remaining = new HashSet<string>(metrics, StringComparer.OrdinalIgnoreCase);
-
-            for (int row = detectedHeaderRow + 1; row < table.Rows.Count && remaining.Count > 0; row++)
+            if (parameters != null)
             {
-                string cellValue = table.Rows[row][keyColIndex]?.ToString()?.Trim();
-                if (cellValue == null || !remaining.Contains(cellValue))
-                    continue;
-
-                var rowData = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
-
-                foreach (var (name, colIndex) in columnMap)
+                foreach (var p in parameters)
                 {
-                    object cellObj = table.Rows[row][colIndex];
-                    rowData[name] = ConvertToDouble(cellObj);
+                    string name = p.Key.StartsWith("@") ? p.Key : "@" + p.Key;
+                    cmd.Parameters.AddWithValue(name, p.Value ?? DBNull.Value);
                 }
-
-                result[cellValue] = rowData;
-                remaining.Remove(cellValue);
             }
 
-            if (remaining.Count > 0)
-                Console.WriteLine($"Warning: Metrics not found: {string.Join(", ", remaining)}");
+            conn.Open();
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                var row = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                for (int i = 0; i < reader.FieldCount; i++)
+                    row[reader.GetName(i)] = RawText(reader.GetValue(i));
+                rows.Add(row);
+            }
 
-            return result;
+            return rows;
         }
 
         /// <summary>
-        /// Compare Excel values against DB values.
-        /// Returns a list of results with pass/fail.
+        /// The 12 rows for one dept, sorted by Month (1 = Jan .. 12 = Dec).
+        /// Throws if the dept isn't in the results. Warns if there aren't exactly 12 rows.
         /// </summary>
-        public static List<CompareResult> Compare(
-            Dictionary<string, Dictionary<string, double>> excelData,
-            Dictionary<string, Dictionary<string, double>> dbData,
-            double tolerance = 0.01)
-        {
-            var results = new List<CompareResult>();
-
-            foreach (var metric in excelData)
-            {
-                if (!dbData.TryGetValue(metric.Key, out var dbRow))
-                {
-                    results.Add(new CompareResult
-                    {
-                        Metric = metric.Key,
-                        Column = "*",
-                        ExcelValue = 0,
-                        DbValue = 0,
-                        Match = false,
-                        Note = "Metric not found in DB"
-                    });
-                    continue;
-                }
-
-                foreach (var col in metric.Value)
-                {
-                    double dbVal = dbRow.TryGetValue(col.Key, out var v) ? v : 0;
-                    bool match = Math.Abs(col.Value - dbVal) <= tolerance;
-
-                    results.Add(new CompareResult
-                    {
-                        Metric = metric.Key,
-                        Column = col.Key,
-                        ExcelValue = col.Value,
-                        DbValue = dbVal,
-                        Match = match
-                    });
-                }
-            }
-
-            return results;
-        }
-
-        /// <summary>
-        /// Print comparison results. Shows all or only mismatches.
-        /// </summary>
-        public static void PrintCompareResults(List<CompareResult> results, bool onlyMismatches = false)
-        {
-            var filtered = onlyMismatches ? results.Where(r => !r.Match).ToList() : results;
-
-            //Console.WriteLine($"\n{"Metric",-40} {"Column",-8} {"Excel",> 12} {"DB",> 12} {"Match",> 8}");
-            Console.WriteLine(new string('-', 82));
-
-            foreach (var r in filtered)
-            {
-                Console.WriteLine($"{r.Metric,-40} {r.Column,-8} {r.ExcelValue,12:F4} {r.DbValue,12:F4} {(r.Match ? "PASS" : "FAIL"),8}");
-            }
-
-            int total = results.Count;
-            int passed = results.Count(r => r.Match);
-            Console.WriteLine(new string('-', 82));
-            Console.WriteLine($"Total: {total} | Passed: {passed} | Failed: {total - passed}");
-        }
-
-        /// <summary>
-        /// Convert comma-delimited string to List&lt;string&gt;.
-        /// </summary>
-        public static List<string> ToList(string commaDelimited)
-        {
-            return commaDelimited
-                .Split(',')
-                .Select(s => s.Trim())
-                .Where(s => !string.IsNullOrEmpty(s))
-                .ToList();
-        }
-
-        private static double ConvertToDouble(object cellObj)
-        {
-            if (cellObj == null || cellObj == DBNull.Value)
-                return 0.0;
-
-            // Already a number type
-            if (cellObj is double d) return d;
-            if (cellObj is decimal dec) return (double)dec;
-            if (cellObj is int i) return i;
-            if (cellObj is long l) return l;
-            if (cellObj is float f) return f;
-
-            // It's a string — parse it
-            string text = cellObj.ToString()?.Trim();
-            if (string.IsNullOrWhiteSpace(text)) return 0.0;
-
-            // Percentage string: "52%", "4.21%"
-            if (text.EndsWith("%"))
-            {
-                string numPart = text.TrimEnd('%').Trim();
-                if (double.TryParse(numPart, out double pctValue))
-                    return pctValue / 100.0;
-            }
-
-            // Currency/formatted: "$1,234.56"
-            string cleaned = text.Replace("$", "").Replace(",", "").Trim();
-            if (double.TryParse(cleaned, out double parsed))
-                return parsed;
-
-            return 0.0;
-        }
-
-        private static int FindKeyColumn(DataTable table, int headerRow, List<string> metrics)
-        {
-            var metricSet = new HashSet<string>(metrics, StringComparer.OrdinalIgnoreCase);
-            int maxCol = Math.Min(table.Columns.Count, 5);
-
-            for (int col = 0; col < maxCol; col++)
-            {
-                for (int row = headerRow + 1; row < table.Rows.Count; row++)
-                {
-                    string val = table.Rows[row][col]?.ToString()?.Trim();
-                    if (val != null && metricSet.Contains(val))
-                        return col;
-                }
-            }
-
-            return 0;
-        }
-
-        /// <summary>
-        /// Query an Excel file: find rows where searchColumn = searchValue,
-        /// return all specified columns for each matching row.
-        /// Uses decimal for exact precision — no rounding.
-        /// 
-        /// Usage:
-        ///   var columns = ExcelParser.ToList("Jan, Feb, Mar, Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec, Total");
-        ///   var results = ExcelParser.QueryExcel(
-        ///       "Report.xls",
-        ///       columns,
-        ///       searchColumn: "Department",
-        ///       searchValue: "504"
-        ///   );
-        ///   
-        ///   decimal jan = results["Employed (Productive) FTEs:"]["Jan"];
-        ///   decimal total = results["Contract FTEs"]["Total"];
-        /// </summary>
-        public static Dictionary<string, Dictionary<string, decimal>> QueryExcel(
-            string fileLocation,
-            List<string> columns,
-            string searchColumn,
-            string searchValue,
-            string sheetName = null,
-            int headerRow = 0,
-            string keyColumn = null)
-        {
-            var table = ExcelHeaderDiscovery.ReadSheet(fileLocation, sheetName);
-            var headers = ExcelHeaderDiscovery.GetHeaders(table, headerRow);
-            int detectedHeaderRow = headers.Values.FirstOrDefault()?.HeaderRow ?? 0;
-
-            // Find the search column
-            var searchCol = headers.Values.FirstOrDefault(h =>
-                h.HeaderName.Equals(searchColumn, StringComparison.OrdinalIgnoreCase));
-
-            if (searchCol == null)
-                throw new KeyNotFoundException($"Search column '{searchColumn}' not found. " +
-                    $"Available: {string.Join(", ", headers.Values.Select(h => h.HeaderName))}");
-
-            // Row key column: use keyColumn if given, otherwise the first column
-            // that isn't the search column and isn't in the columns list
-            int keyColIndex = -1;
-            if (!string.IsNullOrWhiteSpace(keyColumn))
-            {
-                var keyCol = headers.Values.FirstOrDefault(h =>
-                    h.HeaderName.Equals(keyColumn, StringComparison.OrdinalIgnoreCase));
-                if (keyCol == null)
-                    throw new KeyNotFoundException($"Key column '{keyColumn}' not found. " +
-                        $"Available: {string.Join(", ", headers.Values.Select(h => h.HeaderName))}");
-                keyColIndex = keyCol.ColumnIndex;
-            }
-            else
-            {
-                foreach (var h in headers.Values.OrderBy(h => h.ColumnIndex))
-                {
-                    bool isSearchCol = h.ColumnIndex == searchCol.ColumnIndex;
-                    bool isDataCol = columns.Any(c => c.Equals(h.HeaderName, StringComparison.OrdinalIgnoreCase));
-                    if (!isSearchCol && !isDataCol)
-                    {
-                        keyColIndex = h.ColumnIndex;
-                        break;
-                    }
-                }
-            }
-
-            if (keyColIndex < 0) keyColIndex = 0;
-
-            // Map requested columns to their positions
-            var columnMap = new List<(string Name, int ColIndex)>();
-            foreach (var col in columns)
-            {
-                var colInfo = headers.Values.FirstOrDefault(h =>
-                    h.HeaderName.Equals(col, StringComparison.OrdinalIgnoreCase));
-
-                if (colInfo != null)
-                    columnMap.Add((col, colInfo.ColumnIndex));
-                else
-                    Console.WriteLine($"Warning: Column '{col}' not found in Excel.");
-            }
-
-            // Scan rows: find matching criteria, return entire row
-            var result = new Dictionary<string, Dictionary<string, decimal>>(StringComparer.OrdinalIgnoreCase);
-
-            for (int row = detectedHeaderRow + 1; row < table.Rows.Count; row++)
-            {
-                if (!searchValue.Trim().Equals(RawText(table.Rows[row][searchCol.ColumnIndex]), StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                string rowKey = table.Rows[row][keyColIndex]?.ToString()?.Trim();
-                if (string.IsNullOrWhiteSpace(rowKey))
-                    continue;
-
-                var rowData = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
-                foreach (var (name, colIndex) in columnMap)
-                {
-                    object cellObj = table.Rows[row][colIndex];
-                    rowData[name] = ConvertToDecimal(cellObj);
-                }
-
-                // Handle duplicate row keys
-                string uniqueKey = rowKey;
-                if (result.ContainsKey(uniqueKey))
-                {
-                    int suffix = 2;
-                    while (result.ContainsKey($"{rowKey}_{suffix}"))
-                        suffix++;
-                    uniqueKey = $"{rowKey}_{suffix}";
-                }
-
-                result[uniqueKey] = rowData;
-            }
-
-            if (result.Count == 0)
-                Console.WriteLine($"Warning: No rows found where '{searchColumn}' = '{searchValue}'");
-            else
-                Console.WriteLine($"Found {result.Count} rows where '{searchColumn}' = '{searchValue}'");
-
-            return result;
-        }
-
-        /// <summary>
-        /// Non-Productive % Impact Analysis report: get the rows for one department,
-        /// with every column returned exactly as it appears in Excel (as a string, no conversion).
-        /// Each department has two rows, keyed by the NP% column ("Current" and "Historical").
-        ///
-        /// Usage:
-        ///   string dept = "600";
-        ///   var data = ExcelParser.QueryByDept("NonProdImpactAnalysisExpToExl.XLS", dept);
-        ///   string desc = data["Current"]["Dept Desc"];                          // "TWR FLOAT"
-        ///   string type = data["Current"]["WFT Dept Type"];                      // "Semi-Variable"
-        ///   string jan  = data["Current"]["Jan"];                                // "84.211"
-        ///   string feb  = data["Current"]["Feb"];                                // "90"
-        ///   string fte  = data["Current"]["Forecasted Employed Productive FTE"]; // "2.990"
-        ///   string imp  = data["Historical"]["FTE Imp."];                        // "" (blank cell)
-        ///
-        /// Pass columns to return only some of them; null returns all columns in sheet order.
-        /// </summary>
-        public static Dictionary<string, Dictionary<string, string>> QueryByDept(
-            string fileLocation,
+        public static List<Dictionary<string, string>> GetDeptMonths(
+            string query,
             string dept,
-            List<string> columns = null,
-            string sheetName = null,
-            int headerRow = 0)
+            IDictionary<string, object> parameters = null)
         {
             if (string.IsNullOrWhiteSpace(dept))
                 throw new ArgumentException("Department number is required.", nameof(dept));
 
             dept = dept.Trim();
+            var all = RunQuery(query, parameters);
 
-            var table = ExcelHeaderDiscovery.ReadSheet(fileLocation, sheetName);
-            var headers = ExcelHeaderDiscovery.GetHeaders(table, headerRow);
-            int detectedHeaderRow = headers.Values.FirstOrDefault()?.HeaderRow ?? 0;
+            var rows = all
+                .Where(r => r.TryGetValue(DeptColumn, out var v) && SameNumber(dept, v))
+                .OrderBy(r => MonthNumber(r))
+                .ToList();
 
-            int ColOf(string name)
+            if (rows.Count == 0)
+                throw new KeyNotFoundException(
+                    $"Dept '{dept}' not found in the query results ({all.Count} rows returned).");
+
+            if (rows.Count != 12)
+                Console.WriteLine($"Warning: Dept '{dept}' returned {rows.Count} rows, expected 12.");
+
+            return rows;
+        }
+
+        /// <summary>
+        /// Turns the 12 DB rows into one row keyed by the Excel headers, so it lines up
+        /// with LegacyContractManhoursExcel.QueryByDept:
+        ///   Year, Plan, CoId, Description           -> same DB columns (from the first row)
+        ///   Dept#                                   -> Dept
+        ///   DeptDescription                         -> DeptDescription
+        ///   Category                                -> DeptType
+        ///   ContractManhours_Jan .. _Dec            -> FldVal of the row whose ColName matches
+        /// Values are copied as-is.
+        /// </summary>
+        public static Dictionary<string, string> ToExcelRow(List<Dictionary<string, string>> deptRows)
+        {
+            if (deptRows == null || deptRows.Count == 0)
+                throw new ArgumentException("No DB rows to convert.", nameof(deptRows));
+
+            var first = deptRows[0];
+            string Get(Dictionary<string, string> r, string col) => r.TryGetValue(col, out var v) ? v : "";
+
+            var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
-                var h = headers.Values.FirstOrDefault(x =>
-                    x.HeaderName.Equals(name, StringComparison.OrdinalIgnoreCase));
-                if (h == null)
-                    throw new KeyNotFoundException($"Column '{name}' not found. " +
-                        $"Available: {string.Join(", ", headers.Values.Select(x => x.HeaderName))}");
-                return h.ColumnIndex;
-            }
+                ["Year"]            = Get(first, "Year"),
+                ["Plan"]            = Get(first, "Plan"),
+                ["CoId"]            = Get(first, "CoId"),
+                ["Description"]     = Get(first, "Description"),
+                ["Dept#"]           = Get(first, "Dept"),
+                ["DeptDescription"] = Get(first, "DeptDescription"),
+                ["Category"]        = Get(first, "DeptType"),
+            };
 
-            int deptCol = ColOf("Dept #");
-            int npCol   = ColOf("NP%");
-
-            // Columns to return: requested ones, or every header in sheet order
-            var columnMap = new List<(string Name, int ColIndex)>();
-            if (columns == null)
+            foreach (var r in deptRows)
             {
-                foreach (var h in headers.Values.OrderBy(h => h.ColumnIndex))
-                    columnMap.Add((h.HeaderName, h.ColumnIndex));
-            }
-            else
-            {
-                foreach (var col in columns)
+                string colName = Get(r, "ColName").Trim();
+                if (colName.Length == 0)
                 {
-                    var info = headers.Values.FirstOrDefault(h =>
-                        h.HeaderName.Equals(col, StringComparison.OrdinalIgnoreCase));
-                    if (info != null) columnMap.Add((col, info.ColumnIndex));
-                    else Console.WriteLine($"Warning: Column '{col}' not found in Excel.");
+                    // Fall back to the Month number if ColName is blank
+                    int m = MonthNumber(r);
+                    if (m < 1 || m > 12) continue;
+                    colName = "ContractManhours_" + LegacyContractManhoursExcel.MonthNames[m - 1];
                 }
+                result[colName] = Get(r, "FldVal");
             }
-
-            var result = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
-
-            for (int row = detectedHeaderRow + 1; row < table.Rows.Count; row++)
-            {
-                if (!dept.Equals(RawText(table.Rows[row][deptCol]), StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                var rowData = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                foreach (var (name, colIndex) in columnMap)
-                    rowData[name] = RawText(table.Rows[row][colIndex]);
-
-                // Key by NP% ("Current" / "Historical"); suffix if a key repeats
-                string np = RawText(table.Rows[row][npCol]);
-                string key = string.IsNullOrEmpty(np) ? "Row" : np;
-                string uniqueKey = key;
-                for (int n = 2; result.ContainsKey(uniqueKey); n++)
-                    uniqueKey = $"{key}_{n}";
-
-                result[uniqueKey] = rowData;
-            }
-
-            if (result.Count == 0)
-                Console.WriteLine($"Warning: No rows found for Dept # '{dept}'");
-            else
-                Console.WriteLine($"Found {result.Count} rows for Dept # '{dept}'");
 
             return result;
         }
 
-        /// <summary>
-        /// The cell as text, with no numeric conversion. Text cells come back unchanged ("2.990"),
-        /// numbers come back the way Excel's General format shows them (600, 90, 84.211),
-        /// and blank cells come back as "".
-        /// </summary>
-        private static string RawText(object cellObj)
+        private static int MonthNumber(Dictionary<string, string> row) =>
+            row.TryGetValue(MonthColumn, out var v) &&
+            int.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out var m) ? m : int.MaxValue;
+
+        private static bool SameNumber(string a, string b)
         {
-            if (cellObj == null || cellObj == DBNull.Value)
-                return "";
-
-            if (cellObj is IFormattable f)
-                return f.ToString(null, System.Globalization.CultureInfo.InvariantCulture).Trim();
-
-            return cellObj.ToString().Trim();
+            b = (b ?? "").Trim();
+            if (a.Equals(b, StringComparison.OrdinalIgnoreCase)) return true;
+            return decimal.TryParse(a, NumberStyles.Number, CultureInfo.InvariantCulture, out var x)
+                && decimal.TryParse(b, NumberStyles.Number, CultureInfo.InvariantCulture, out var y)
+                && x == y;
         }
 
-        private static decimal ConvertToDecimal(object cellObj)
+        /// <summary>The DB value as text, with no rounding. NULL becomes "".</summary>
+        private static string RawText(object value)
         {
-            if (cellObj == null || cellObj == DBNull.Value)
-                return 0m;
-
-            if (cellObj is decimal dec) return dec;
-            if (cellObj is double d) return (decimal)d;
-            if (cellObj is int i) return i;
-            if (cellObj is long l) return l;
-            if (cellObj is float f) return (decimal)f;
-
-            string text = cellObj.ToString()?.Trim();
-            if (string.IsNullOrWhiteSpace(text)) return 0m;
-
-            // Percentage: "52%" -> 0.52
-            if (text.EndsWith("%"))
+            if (value == null || value == DBNull.Value) return "";
+            switch (value)
             {
-                string numPart = text.TrimEnd('%').Trim();
-                if (decimal.TryParse(numPart, out decimal pctValue))
-                    return pctValue / 100m;
+                case decimal m:   return m.ToString(CultureInfo.InvariantCulture);   // keeps "0.00000"
+                case double d:    return d.ToString("R", CultureInfo.InvariantCulture);
+                case float f:     return f.ToString("R", CultureInfo.InvariantCulture);
+                case DateTime dt: return dt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+                default:          return Convert.ToString(value, CultureInfo.InvariantCulture);
             }
-
-            // Currency/formatted: "$1,234.56"
-            string cleaned = text.Replace("$", "").Replace(",", "").Trim();
-            if (decimal.TryParse(cleaned, out decimal parsed))
-                return parsed;
-
-            return 0m;
         }
-    }
-
-    public class CompareResult
-    {
-        public string Metric { get; set; }
-        public string Column { get; set; }
-        public double ExcelValue { get; set; }
-        public double DbValue { get; set; }
-        public bool Match { get; set; }
-        public string Note { get; set; }
-
-        public override string ToString()
-            => $"{Metric} | {Column}: Excel={ExcelValue:F4}, DB={DbValue:F4} -> {(Match ? "PASS" : "FAIL")}";
     }
 }
